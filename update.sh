@@ -57,18 +57,21 @@ if [ ! -f ".env" ]; then
 
   cat <<EOF > .env
 DOMAIN=theogioinamsach.com
+HOST_PORT=8208
+APP_ORIGIN=https://theogioinamsach.com
 SETUP_TOKEN=$RAND_TOKEN
 EOF
   chmod 600 .env
-  echo -e "${GREEN}[OK] Đã tạo file .env với DOMAIN=theogioinamsach.com và SETUP_TOKEN tự sinh.${NC}"
+  echo -e "${GREEN}[OK] Đã tạo file .env với DOMAIN=theogioinamsach.com, HOST_PORT=8208.${NC}"
 else
   # Đảm bảo quyền an toàn cho file .env
   chmod 600 .env
   echo -e "${GREEN}[OK] Tìm thấy file .env hiện tại.${NC}"
 fi
 
-# Đọc cấu hình DOMAIN từ .env để hiển thị
+# Đọc cấu hình từ .env để hiển thị
 APP_DOMAIN=$(grep -E '^DOMAIN=' .env | cut -d '=' -f2- | tr -d '"' | tr -d "'" || echo "theogioinamsach.com")
+APP_PORT=$(grep -E '^HOST_PORT=' .env | cut -d '=' -f2- | tr -d '"' | tr -d "'" || echo "8208")
 
 # 4. Rebuild image Docker để cập nhật mã nguồn mới
 echo -e "\n${BLUE}>>> Đang Rebuild Docker Image với mã nguồn mới...${NC}"
@@ -92,6 +95,7 @@ $COMPOSE_CMD logs --tail=15 app
 
 echo -e "\n${GREEN}======================================================${NC}"
 echo -e "${GREEN}   CẬP NHẬT DỰ ÁN HOÀN TẤT THÀNH CÔNG!                ${NC}"
-echo -e "${GREEN}   Tên miền: https://${APP_DOMAIN}                    ${NC}"
+echo -e "${GREEN}   Cổng máy thật: http://localhost:${APP_PORT} (hoặc http://IP:${APP_PORT}) ${NC}"
+echo -e "${GREEN}   Tên miền: https://${APP_DOMAIN} (nếu qua Nginx reverse proxy) ${NC}"
 echo -e "${GREEN}   Cơ sở dữ liệu lưu tại: $(pwd)/data                ${NC}"
 echo -e "${GREEN}======================================================${NC}"

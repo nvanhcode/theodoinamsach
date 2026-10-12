@@ -2,21 +2,29 @@ services:
   app:
     build: .
     restart: unless-stopped
+    ports:
+      # Map cổng máy thật (mặc định 8208) vào cổng 3080 của ứng dụng trong container
+      - "${HOST_PORT:-8208}:3080"
     environment:
       SETUP_TOKEN: ${SETUP_TOKEN:?Set a random setup token}
-      APP_ORIGIN: https://${DOMAIN:?Set your domain}
+      APP_ORIGIN: ${APP_ORIGIN:-https://${DOMAIN:?Set your domain}}
     volumes:
       # Mount thư mục data/ chứa SQLite database (nam-sach.sqlite) và tệp upload ra ngoài máy chủ
       - ./data:/data
-  https:
-    image: caddy:2
-    restart: unless-stopped
-    ports: ["80:80", "443:443"]
-    environment:
-      DOMAIN: ${DOMAIN}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-    depends_on: [app]
-volumes:
-  caddy_data:
+
+  # Service Caddy (tùy chọn cấp SSL tự động cổng 80/443).
+  # Nếu máy chủ đã có Nginx/Web Server hoặc bạn truy cập trực tiếp qua cổng 8208, 
+  # Caddy không cần thiết và được tắt bên dưới để tránh xung đột cổng 80/443.
+  # https:
+  #   image: caddy:2
+  #   restart: unless-stopped
+  #   ports: ["80:80", "443:443"]
+  #   environment:
+  #     DOMAIN: ${DOMAIN}
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - caddy_data:/data
+  #   depends_on: [app]
+
+# volumes:
+#   caddy_data:
