@@ -1,0 +1,11 @@
+import {build} from 'vite';import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';
+await build({configFile:false,build:{ssr:'lib/reminder-priority.ts',outDir:'.sites-runtime/reminder-test',rollupOptions:{output:{entryFileNames:'reminders.mjs'}}}});
+const {reminderPriority,delayLabel}=await import(pathToFileURL(process.cwd()+'/.sites-runtime/reminder-test/reminders.mjs'));
+const now=new Date('2026-10-11T08:00:00Z'),cfg={day:5,hour:'16:00',warningDays:3};
+const task=(id,due,status='working',more={})=>({id,title:id,unit:'a',due,status,assignedDate:'2026-10-01',...more});
+const tasks=[task('new','2026-10-10'),task('old','2026-10-05'),task('late','2026-10-31'),task('draft','2026-10-01','draft'),task('done','2026-10-01','done'),task('paused','2026-10-01','paused')];
+const reports=[{taskId:'late',unit:'a',periodKey:'2026-10-05',submitted:'2026-10-09T10:00:00Z'}];
+let rows=reminderPriority(tasks,reports,now,cfg);assert.deepEqual(rows.map(r=>r.task.id),['old','new','late']);assert.equal(rows[0].overdue,true);assert.equal(rows[0].missing,true);assert.equal(rows[2].sentLate,true);assert.equal(rows[2].resolved,true);assert.equal(rows[2].submitted,'2026-10-09T10:00:00Z');
+const daily=task('daily','2026-10-31','working',{reportFrequency:'daily',reportHour:'09:00'});rows=reminderPriority([daily],[],now,cfg);assert.equal(rows[0].reportDeadline,'2026-10-11T02:00:00.000Z');assert.equal(rows[0].missing,true);
+assert.equal(delayLabel('2026-10-09T09:00:00Z','2026-10-11T10:00:00Z'),'2 ngày 1 giờ');assert.equal(delayLabel('2026-10-09T09:00:00Z','2026-10-09T09:30:00Z'),'dưới 1 giờ');
+console.log('PASS oldest deadlines first, dual reasons, unresolved before sent-late, daily schedules and inactive exclusions');

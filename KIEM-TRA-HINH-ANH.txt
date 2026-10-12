@@ -1,0 +1,11 @@
+Đã thay ảnh nền trụ sở và biểu tượng búa liềm bằng hai ảnh người dùng cung cấp.
+Logo PNG giữ nguyên byte; ảnh nền chuyển PNG sang JPEG chất lượng 95 để tương thích đường dẫn hiện có.
+Đã giải mã đầy đủ tất cả ảnh raster trong gói; không còn lỗi ảnh bị cắt.
+Cơ sở dữ liệu giữ nguyên SHA-256: 19f4a660ce38bececc2bb4cd8abd4c2282c5400316259f0a3d0d87a02676d812
+Ảnh đã kiểm tra:
+public/bua-liem-nam-sach.png
+public/tru-so-nam-sach.jpg
+selfhost-dist/client/bua-liem-nam-sach.png
+selfhost-dist/client/tru-so-nam-sach.jpg
+selfhost-dist/server/bua-liem-nam-sach.png
+selfhost-dist/server/tru-so-nam-sach.jpg

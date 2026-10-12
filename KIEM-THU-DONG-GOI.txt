@@ -1,0 +1,6 @@
+PASS SQLite integrity and foreign keys.
+PASS independent packaged Node startup without node_modules.
+PASS 46 tasks, 1 report, 23 units, 9 users preserved.
+PASS restart retains new local records; no snapshot overwrite.
+PASS no old login sessions migrated; source snapshot unchanged.
+NOT TESTED: target-host Docker, DNS, HTTPS, real iPhone.

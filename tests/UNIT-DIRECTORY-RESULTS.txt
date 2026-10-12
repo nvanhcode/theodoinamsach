@@ -1,0 +1,8 @@
+PASS Fresh directory: 23 units and Công đoàn linked to MTTQ
+PASS Police unit and existing tasks moved together with IDs, progress and results preserved
+PASS Education/health group merged into UBND and culture/social department; account scope preserved as exact units
+PASS Existing directory reconciles names, grouping and parent without breaking IDs, tasks or accounts
+PASS Missing UBND units inserted exactly once
+PASS Reload is idempotent with no duplicate audit or version churn
+PASS Parent hierarchy rejects self-parent and cycles
+PASS Later admin edits remain authoritative

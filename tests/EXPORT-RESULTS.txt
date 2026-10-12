@@ -1,0 +1,1 @@
+XLSX: real workbook, 45 task rows; DOCX: real ZIP container; PDF: embedded Vietnamese font, multiple pages. Download button/browser rendering not automated.

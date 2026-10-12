@@ -1,0 +1,23 @@
+vite v8.0.13 building ssr environment for production...
+[2Ktransforming...✓ 3 modules transformed.
+rendering chunks...
+computing gzip size...
+.sites-runtime/account-parser/parser.mjs  11.13 kB │ gzip: 4.32 kB
+
+✓ built in 218ms
+PASS authenticated self-only skip, reload and fresh login, password unchanged
+PASS 8 real logins, mandatory password change, interrupted first-login retry, old sessions revoked, no admin grants
+PASS bxdd: 10 scoped tasks, edit/save/send/confirm sync, evidence, denied outside/admin
+PASS vpdu: 12 scoped tasks, edit/save/send/confirm sync, evidence, denied outside/admin
+PASS ubkt: 3 scoped tasks, edit/save/send/confirm sync, evidence, denied outside/admin
+Additional isolated lead fixture: hdnd
+PASS hdnd: 0 scoped tasks, edit/save/send/confirm sync, evidence, denied outside/admin
+PASS ubnd: 35 scoped tasks, edit/save/send/confirm sync, evidence, denied outside/admin
+PASS mttq: 14 scoped tasks, edit/save/send/confirm sync, evidence, denied outside/admin
+PASS congan: 7 scoped tasks, edit/save/send/confirm sync, evidence, denied outside/admin
+PASS quansu: 2 scoped tasks, edit/save/send/confirm sync, evidence, denied outside/admin
+PASS ZIP/RAR/7Z, invalid signature, max 3 server limit, download-only archives, document requirement and freed upload slot
+PASS report files, WEBP/PDF previews, draft deletion, required image, stale version, return/history, partner isolation, new account and revoked API permission
+PASS aggregate HĐND/UBND/MTTQ scope, Công đoàn, police/army separation, lock/unlock/reset, audit, idempotence, November empty
+
+PASS packaged prebuilt server starts without node_modules; isolated SQLite; HTTP bootstrap and homepage.

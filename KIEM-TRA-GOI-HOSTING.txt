@@ -1,0 +1,11 @@
+Không thiếu tệp so với gói đầy đủ trước: 206/206 tệp.
+SQLite: integrity_check và foreign_key_check đạt.
+Dữ liệu: 46 nhiệm vụ; 1 báo cáo; 23 đơn vị; 9 tài khoản.
+Khởi động từ ZIP giải nén mới bằng Node.js 24: đạt.
+HTML và tài nguyên giao diện: tải thành công.
+Ảnh PNG/JPG: HTTP đúng Content-Type, giải mã đầy đủ.
+Tải mẫu Excel qua API: thành công, workbook không lỗi ZIP.
+Truy cập dữ liệu chưa đăng nhập: bị chặn HTTP 401.
+Khởi động lại: giữ nguyên dữ liệu, không nạp đè SQLite.
+Bản dữ liệu gốc không đổi.
+Phạm vi: kiểm tra gói và máy chủ cục bộ; chưa triển khai trên hosting của người dùng, chưa kiểm thử giao diện trên điện thoại thật.

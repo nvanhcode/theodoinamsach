@@ -1,0 +1,6 @@
+{$DOMAIN} {
+  reverse_proxy app:3080
+  header X-Content-Type-Options nosniff
+  header Referrer-Policy same-origin
+  header X-Frame-Options DENY
+}
