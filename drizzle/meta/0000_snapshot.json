@@ -91,9 +91,7 @@
       "indexes": {
         "audit_target": {
           "name": "audit_target",
-          "columns": [
-            "target"
-          ],
+          "columns": ["target"],
           "isUnique": false
         }
       },
@@ -161,12 +159,8 @@
           "name": "files_parent_id_records_id_fk",
           "tableFrom": "files",
           "tableTo": "records",
-          "columnsFrom": [
-            "parent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["parent_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -225,16 +219,12 @@
       "indexes": {
         "records_kind": {
           "name": "records_kind",
-          "columns": [
-            "kind"
-          ],
+          "columns": ["kind"],
           "isUnique": false
         },
         "records_parent": {
           "name": "records_parent",
-          "columns": [
-            "parent_id"
-          ],
+          "columns": ["parent_id"],
           "isUnique": false
         }
       },
@@ -274,12 +264,8 @@
           "name": "sessions_user_id_users_id_fk",
           "tableFrom": "sessions",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -375,9 +361,7 @@
       "indexes": {
         "users_username_unique": {
           "name": "users_username_unique",
-          "columns": [
-            "username"
-          ],
+          "columns": ["username"],
           "isUnique": true
         }
       },

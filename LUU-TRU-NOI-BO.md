@@ -1,4 +1,5 @@
 # Lưu trữ nội bộ và vận hành
+
 Tài khoản, mật khẩu băm, đơn vị, nhiệm vụ, báo cáo, cấu hình và lịch sử đều nằm trong SQLite tại DATA_DIR/nam-sach.sqlite. Nội dung minh chứng nằm trong DATA_DIR/files. Bản dữ liệu khởi tạo nằm trong initial-data, được sao chép một lần khi cài mới.
 
 Không dùng Firebase, Supabase, API gửi SMS/email hay kho tệp ngoài cho các luồng nghiệp vụ. Không yêu cầu API key bên thứ ba. Docker tải image và Caddy cấp chứng chỉ HTTPS có thể cần kết nối Internet trong khâu triển khai. SETUP_TOKEN là mã tự tạo của hệ thống.

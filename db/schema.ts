@@ -1,7 +1,65 @@
-import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
-export const users = sqliteTable('users', { id:text('id').primaryKey(), username:text('username').notNull().unique(), name:text('name').notNull(), password:text('password').notNull(), roles:text('roles').notNull(), units:text('units').notNull(), groups:text('groups').notNull(), active:integer('active').notNull().default(1), mustChange:integer('must_change').notNull().default(0), tempUntil:text('temp_until'), version:integer('version').notNull().default(1) });
-export const sessions = sqliteTable('sessions',{id:text('id').primaryKey(), userId:text('user_id').notNull().references(()=>users.id), expires:text('expires').notNull()});
-export const records = sqliteTable('records',{id:text('id').primaryKey(), kind:text('kind').notNull(), parentId:text('parent_id'), data:text('data').notNull(), version:integer('version').notNull().default(1), updated:text('updated').notNull()},t=>[index('records_kind').on(t.kind),index('records_parent').on(t.parentId)]);
-export const audit = sqliteTable('audit',{id:text('id').primaryKey(),actor:text('actor').notNull(),action:text('action').notNull(),target:text('target').notNull(),before:text('before'),after:text('after'),time:text('time').notNull()},t=>[index('audit_target').on(t.target)]);
-export const attempts = sqliteTable('attempts',{id:text('id').primaryKey(),count:integer('count').notNull(),until:text('until').notNull()});
-export const files = sqliteTable('files',{id:text('id').primaryKey(),parentId:text('parent_id').notNull().references(()=>records.id),name:text('name').notNull(),mime:text('mime').notNull(),size:integer('size').notNull(),owner:text('owner').notNull(),created:text('created').notNull()});
+import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  name: text("name").notNull(),
+  password: text("password").notNull(),
+  roles: text("roles").notNull(),
+  units: text("units").notNull(),
+  groups: text("groups").notNull(),
+  active: integer("active").notNull().default(1),
+  mustChange: integer("must_change").notNull().default(0),
+  tempUntil: text("temp_until"),
+  version: integer("version").notNull().default(1),
+});
+export const sessions = sqliteTable("sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id),
+  expires: text("expires").notNull(),
+});
+export const records = sqliteTable(
+  "records",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind").notNull(),
+    parentId: text("parent_id"),
+    data: text("data").notNull(),
+    version: integer("version").notNull().default(1),
+    updated: text("updated").notNull(),
+  },
+  (t) => [
+    index("records_kind").on(t.kind),
+    index("records_parent").on(t.parentId),
+  ],
+);
+export const audit = sqliteTable(
+  "audit",
+  {
+    id: text("id").primaryKey(),
+    actor: text("actor").notNull(),
+    action: text("action").notNull(),
+    target: text("target").notNull(),
+    before: text("before"),
+    after: text("after"),
+    time: text("time").notNull(),
+  },
+  (t) => [index("audit_target").on(t.target)],
+);
+export const attempts = sqliteTable("attempts", {
+  id: text("id").primaryKey(),
+  count: integer("count").notNull(),
+  until: text("until").notNull(),
+});
+export const files = sqliteTable("files", {
+  id: text("id").primaryKey(),
+  parentId: text("parent_id")
+    .notNull()
+    .references(() => records.id),
+  name: text("name").notNull(),
+  mime: text("mime").notNull(),
+  size: integer("size").notNull(),
+  owner: text("owner").notNull(),
+  created: text("created").notNull(),
+});

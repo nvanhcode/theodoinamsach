@@ -1,24 +1,267 @@
-import {spawn} from 'node:child_process';import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';import {tmpdir} from 'node:os';import path from 'node:path';import assert from 'node:assert/strict';import {DatabaseSync} from 'node:sqlite';
-const dir=mkdtempSync(path.join(tmpdir(),'ns-units-'));const server=spawn(process.execPath,['selfhost-dist/server/server.mjs'],{env:{...process.env,PORT:'3189',DATA_DIR:dir,APP_ORIGIN:'http://localhost:3189'},stdio:['ignore','pipe','pipe']});let sql;let cookie;
-async function call(p,b,status=200){const r=await fetch('http://localhost:3189/api/'+p,{method:b?'POST':'GET',headers:{cookie:cookie||'','Content-Type':'application/json','X-NS-Request':'1'},body:b?JSON.stringify(b):undefined});const data=await r.json();assert.equal(r.status,status,JSON.stringify(data));return data;}
-const lines=[];function pass(s){lines.push('PASS '+s);console.log('PASS '+s)}
-try{await new Promise((resolve,reject)=>{server.stdout.on('data',d=>{if(d.toString().includes('ready'))resolve()});server.on('error',reject);server.on('exit',c=>{if(c)reject(new Error('Server failed'))})});
-const login=await fetch('http://localhost:3189/api/login',{method:'POST',headers:{'Content-Type':'application/json','X-NS-Request':'1'},body:JSON.stringify({username:'admin',password:'admin'})});assert.equal(login.status,200);cookie=login.headers.get('set-cookie').split(';')[0];
-let data=await call('data');assert.equal(data.units.length,23);assert.equal(data.units.find(u=>u.name==='Công đoàn').parentUnitId,'unit-12');assert.equal(data.units.find(u=>u.name==='Công an xã').group,'Lực lượng vũ trang');assert.ok(data.units.some(u=>u.name==='Trung tâm Dịch vụ sự nghiệp công'));pass('Fresh directory: 23 units and Công đoàn linked to MTTQ');
-sql=new DatabaseSync(path.join(dir,'nam-sach.sqlite'));sql.prepare('DELETE FROM records WHERE id=?').run('directory-2026-10-08-units-v1');sql.prepare('DELETE FROM records WHERE id=?').run('directory-2026-10-11-armed-forces-v2');sql.prepare('DELETE FROM records WHERE id=?').run('directory-2026-10-11-education-health-v3');for(const id of ['unit-20','unit-21','unit-22'])sql.prepare('DELETE FROM records WHERE id=?').run(id);
-sql.prepare("UPDATE records SET data=json_set(data,'$.name','Trung tâm Dịch vụ tổng hợp','$.contact','Giữ nguyên liên hệ') WHERE id='unit-11'").run();sql.prepare("UPDATE records SET data=json_set(data,'$.group','UBND') WHERE id='unit-17'").run();
-// An administrator already added the union manually; migration must link it without duplication.
-sql.prepare('INSERT INTO records(id,kind,data,version,updated) VALUES(?,?,?,?,?)').run('manual-union','unit',JSON.stringify({name:'Công đoàn',group:'MTTQ và đoàn thể',active:true,contact:'Đầu mối đã nhập'}),3,new Date().toISOString());
-const taskData=JSON.stringify({title:'Nhiệm vụ đã có',unit:'unit-11',group:'UBND',status:'draft',month:'2026-10'});sql.prepare('INSERT INTO records(id,kind,data,version,updated) VALUES(?,?,?,?,?)').run('old-task','task',taskData,7,new Date().toISOString());
-sql.prepare('INSERT INTO records(id,kind,data,version,updated) VALUES(?,?,?,?,?)').run('police-task','task',JSON.stringify({title:'Nhiệm vụ công an',unit:'unit-17',group:'UBND',status:'working',month:'2026-10',progress:65,result:'Kết quả giữ nguyên'}),3,new Date().toISOString());
-sql.prepare("UPDATE records SET data=json_set(data,'$.group','Giáo dục, y tế','$.parentUnitId','') WHERE id='unit-19'").run();
-sql.prepare('INSERT INTO records(id,kind,data,version,updated) VALUES(?,?,?,?,?)').run('health-task','task',JSON.stringify({title:'Nhiệm vụ y tế',unit:'unit-19',group:'Giáo dục, y tế',status:'working',month:'2026-10',progress:37}),3,new Date().toISOString());
-sql.prepare('INSERT INTO users(id,username,name,password,roles,units,groups,active,must_change,version) VALUES(?,?,?,?,?,?,?,1,0,1)').run('health-user','health-test','Y tế kiểm thử','unused-test-fixture','["editor"]','["unit-0"]','["Giáo dục, y tế"]');
-const oldAccount=sql.prepare('SELECT units FROM users WHERE id=?').get('initial-admin').units;
-data=await call('data');assert.equal(data.units.length,23);const union=data.units.find(u=>u.name==='Công đoàn');assert.equal(union.id,'manual-union');assert.equal(union.parentUnitId,'unit-12');assert.equal(union.contact,'Đầu mối đã nhập');assert.equal(data.units.find(u=>u.id==='unit-11').name,'Trung tâm Dịch vụ sự nghiệp công');assert.equal(data.units.find(u=>u.id==='unit-11').contact,'Giữ nguyên liên hệ');assert.equal(data.units.find(u=>u.id==='unit-17').group,'Lực lượng vũ trang');assert.equal(sql.prepare('SELECT data FROM records WHERE id=?').get('old-task').data,taskData);assert.equal(sql.prepare('SELECT units FROM users WHERE id=?').get('initial-admin').units,oldAccount);const policeTask=data.tasks.find(t=>t.id==='police-task');assert.equal(policeTask.group,'Lực lượng vũ trang');assert.equal(policeTask.progress,65);assert.equal(policeTask.result,'Kết quả giữ nguyên');assert.equal(policeTask.version,4);pass('Police unit and existing tasks moved together with IDs, progress and results preserved');assert.equal(data.units.find(u=>u.id==='unit-19').group,'UBND');assert.equal(data.units.find(u=>u.id==='unit-19').parentUnitId,'unit-9');assert.equal(data.tasks.find(t=>t.id==='health-task').group,'UBND');assert.equal(data.tasks.find(t=>t.id==='health-task').progress,37);const healthUser=data.users.find(u=>u.id==='health-user');assert.deepEqual(healthUser.groups,[]);assert.deepEqual(new Set(healthUser.units),new Set(['unit-0','unit-19']));pass('Education/health group merged into UBND and culture/social department; account scope preserved as exact units');pass('Existing directory reconciles names, grouping and parent without breaking IDs, tasks or accounts');
-assert.equal(data.units.filter(u=>u.name==='Phòng Xây dựng, Nông nghiệp và Môi trường').length,1);assert.equal(data.units.filter(u=>u.name==='Ban Quản lý dự án đầu tư xây dựng xã').length,1);pass('Missing UBND units inserted exactly once');
-const counts=sql.prepare('SELECT count(*) AS n FROM audit').get().n;const before=data.units.map(u=>[u.id,u.version]);data=await call('data');assert.deepEqual(data.units.map(u=>[u.id,u.version]),before);assert.equal(sql.prepare('SELECT count(*) AS n FROM audit').get().n,counts);pass('Reload is idempotent with no duplicate audit or version churn');
-await call('unit',{...union,parentUnitId:union.id},400);const parent=data.units.find(u=>u.id==='unit-12');await call('unit',{...parent,parentUnitId:union.id},400);pass('Parent hierarchy rejects self-parent and cycles');
-await call('unit',{...union,contact:'Cập nhật sau triển khai'});data=await call('data');assert.equal(data.units.find(u=>u.id===union.id).contact,'Cập nhật sau triển khai');pass('Later admin edits remain authoritative');
-writeFileSync('tests/UNIT-DIRECTORY-RESULTS.txt',lines.join('\n')+'\n');
-}finally{sql?.close();server.kill();await new Promise(r=>server.once('exit',r));rmSync(dir,{recursive:true,force:true})}
+import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
+const dir = mkdtempSync(path.join(tmpdir(), "ns-units-"));
+const server = spawn(process.execPath, ["selfhost-dist/server/server.mjs"], {
+  env: {
+    ...process.env,
+    PORT: "3189",
+    DATA_DIR: dir,
+    APP_ORIGIN: "http://localhost:3189",
+  },
+  stdio: ["ignore", "pipe", "pipe"],
+});
+let sql;
+let cookie;
+async function call(p, b, status = 200) {
+  const r = await fetch("http://localhost:3189/api/" + p, {
+    method: b ? "POST" : "GET",
+    headers: {
+      cookie: cookie || "",
+      "Content-Type": "application/json",
+      "X-NS-Request": "1",
+    },
+    body: b ? JSON.stringify(b) : undefined,
+  });
+  const data = await r.json();
+  assert.equal(r.status, status, JSON.stringify(data));
+  return data;
+}
+const lines = [];
+function pass(s) {
+  lines.push("PASS " + s);
+  console.log("PASS " + s);
+}
+try {
+  await new Promise((resolve, reject) => {
+    server.stdout.on("data", (d) => {
+      if (d.toString().includes("ready")) resolve();
+    });
+    server.on("error", reject);
+    server.on("exit", (c) => {
+      if (c) reject(new Error("Server failed"));
+    });
+  });
+  const login = await fetch("http://localhost:3189/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-NS-Request": "1" },
+    body: JSON.stringify({ username: "admin", password: "admin" }),
+  });
+  assert.equal(login.status, 200);
+  cookie = login.headers.get("set-cookie").split(";")[0];
+  let data = await call("data");
+  assert.equal(data.units.length, 23);
+  assert.equal(
+    data.units.find((u) => u.name === "Công đoàn").parentUnitId,
+    "unit-12",
+  );
+  assert.equal(
+    data.units.find((u) => u.name === "Công an xã").group,
+    "Lực lượng vũ trang",
+  );
+  assert.ok(
+    data.units.some((u) => u.name === "Trung tâm Dịch vụ sự nghiệp công"),
+  );
+  pass("Fresh directory: 23 units and Công đoàn linked to MTTQ");
+  sql = new DatabaseSync(path.join(dir, "nam-sach.sqlite"));
+  sql
+    .prepare("DELETE FROM records WHERE id=?")
+    .run("directory-2026-10-08-units-v1");
+  sql
+    .prepare("DELETE FROM records WHERE id=?")
+    .run("directory-2026-10-11-armed-forces-v2");
+  sql
+    .prepare("DELETE FROM records WHERE id=?")
+    .run("directory-2026-10-11-education-health-v3");
+  for (const id of ["unit-20", "unit-21", "unit-22"])
+    sql.prepare("DELETE FROM records WHERE id=?").run(id);
+  sql
+    .prepare(
+      "UPDATE records SET data=json_set(data,'$.name','Trung tâm Dịch vụ tổng hợp','$.contact','Giữ nguyên liên hệ') WHERE id='unit-11'",
+    )
+    .run();
+  sql
+    .prepare(
+      "UPDATE records SET data=json_set(data,'$.group','UBND') WHERE id='unit-17'",
+    )
+    .run();
+  // An administrator already added the union manually; migration must link it without duplication.
+  sql
+    .prepare(
+      "INSERT INTO records(id,kind,data,version,updated) VALUES(?,?,?,?,?)",
+    )
+    .run(
+      "manual-union",
+      "unit",
+      JSON.stringify({
+        name: "Công đoàn",
+        group: "MTTQ và đoàn thể",
+        active: true,
+        contact: "Đầu mối đã nhập",
+      }),
+      3,
+      new Date().toISOString(),
+    );
+  const taskData = JSON.stringify({
+    title: "Nhiệm vụ đã có",
+    unit: "unit-11",
+    group: "UBND",
+    status: "draft",
+    month: "2026-10",
+  });
+  sql
+    .prepare(
+      "INSERT INTO records(id,kind,data,version,updated) VALUES(?,?,?,?,?)",
+    )
+    .run("old-task", "task", taskData, 7, new Date().toISOString());
+  sql
+    .prepare(
+      "INSERT INTO records(id,kind,data,version,updated) VALUES(?,?,?,?,?)",
+    )
+    .run(
+      "police-task",
+      "task",
+      JSON.stringify({
+        title: "Nhiệm vụ công an",
+        unit: "unit-17",
+        group: "UBND",
+        status: "working",
+        month: "2026-10",
+        progress: 65,
+        result: "Kết quả giữ nguyên",
+      }),
+      3,
+      new Date().toISOString(),
+    );
+  sql
+    .prepare(
+      "UPDATE records SET data=json_set(data,'$.group','Giáo dục, y tế','$.parentUnitId','') WHERE id='unit-19'",
+    )
+    .run();
+  sql
+    .prepare(
+      "INSERT INTO records(id,kind,data,version,updated) VALUES(?,?,?,?,?)",
+    )
+    .run(
+      "health-task",
+      "task",
+      JSON.stringify({
+        title: "Nhiệm vụ y tế",
+        unit: "unit-19",
+        group: "Giáo dục, y tế",
+        status: "working",
+        month: "2026-10",
+        progress: 37,
+      }),
+      3,
+      new Date().toISOString(),
+    );
+  sql
+    .prepare(
+      "INSERT INTO users(id,username,name,password,roles,units,groups,active,must_change,version) VALUES(?,?,?,?,?,?,?,1,0,1)",
+    )
+    .run(
+      "health-user",
+      "health-test",
+      "Y tế kiểm thử",
+      "unused-test-fixture",
+      '["editor"]',
+      '["unit-0"]',
+      '["Giáo dục, y tế"]',
+    );
+  const oldAccount = sql
+    .prepare("SELECT units FROM users WHERE id=?")
+    .get("initial-admin").units;
+  data = await call("data");
+  assert.equal(data.units.length, 23);
+  const union = data.units.find((u) => u.name === "Công đoàn");
+  assert.equal(union.id, "manual-union");
+  assert.equal(union.parentUnitId, "unit-12");
+  assert.equal(union.contact, "Đầu mối đã nhập");
+  assert.equal(
+    data.units.find((u) => u.id === "unit-11").name,
+    "Trung tâm Dịch vụ sự nghiệp công",
+  );
+  assert.equal(
+    data.units.find((u) => u.id === "unit-11").contact,
+    "Giữ nguyên liên hệ",
+  );
+  assert.equal(
+    data.units.find((u) => u.id === "unit-17").group,
+    "Lực lượng vũ trang",
+  );
+  assert.equal(
+    sql.prepare("SELECT data FROM records WHERE id=?").get("old-task").data,
+    taskData,
+  );
+  assert.equal(
+    sql.prepare("SELECT units FROM users WHERE id=?").get("initial-admin")
+      .units,
+    oldAccount,
+  );
+  const policeTask = data.tasks.find((t) => t.id === "police-task");
+  assert.equal(policeTask.group, "Lực lượng vũ trang");
+  assert.equal(policeTask.progress, 65);
+  assert.equal(policeTask.result, "Kết quả giữ nguyên");
+  assert.equal(policeTask.version, 4);
+  pass(
+    "Police unit and existing tasks moved together with IDs, progress and results preserved",
+  );
+  assert.equal(data.units.find((u) => u.id === "unit-19").group, "UBND");
+  assert.equal(
+    data.units.find((u) => u.id === "unit-19").parentUnitId,
+    "unit-9",
+  );
+  assert.equal(data.tasks.find((t) => t.id === "health-task").group, "UBND");
+  assert.equal(data.tasks.find((t) => t.id === "health-task").progress, 37);
+  const healthUser = data.users.find((u) => u.id === "health-user");
+  assert.deepEqual(healthUser.groups, []);
+  assert.deepEqual(new Set(healthUser.units), new Set(["unit-0", "unit-19"]));
+  pass(
+    "Education/health group merged into UBND and culture/social department; account scope preserved as exact units",
+  );
+  pass(
+    "Existing directory reconciles names, grouping and parent without breaking IDs, tasks or accounts",
+  );
+  assert.equal(
+    data.units.filter(
+      (u) => u.name === "Phòng Xây dựng, Nông nghiệp và Môi trường",
+    ).length,
+    1,
+  );
+  assert.equal(
+    data.units.filter((u) => u.name === "Ban Quản lý dự án đầu tư xây dựng xã")
+      .length,
+    1,
+  );
+  pass("Missing UBND units inserted exactly once");
+  const counts = sql.prepare("SELECT count(*) AS n FROM audit").get().n;
+  const before = data.units.map((u) => [u.id, u.version]);
+  data = await call("data");
+  assert.deepEqual(
+    data.units.map((u) => [u.id, u.version]),
+    before,
+  );
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM audit").get().n, counts);
+  pass("Reload is idempotent with no duplicate audit or version churn");
+  await call("unit", { ...union, parentUnitId: union.id }, 400);
+  const parent = data.units.find((u) => u.id === "unit-12");
+  await call("unit", { ...parent, parentUnitId: union.id }, 400);
+  pass("Parent hierarchy rejects self-parent and cycles");
+  await call("unit", { ...union, contact: "Cập nhật sau triển khai" });
+  data = await call("data");
+  assert.equal(
+    data.units.find((u) => u.id === union.id).contact,
+    "Cập nhật sau triển khai",
+  );
+  pass("Later admin edits remain authoritative");
+  writeFileSync("tests/UNIT-DIRECTORY-RESULTS.txt", lines.join("\n") + "\n");
+} finally {
+  sql?.close();
+  server.kill();
+  await new Promise((r) => server.once("exit", r));
+  rmSync(dir, { recursive: true, force: true });
+}

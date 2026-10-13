@@ -1,20 +1,206 @@
-import React from 'react';
-import {deadlineState,stateNames} from '@/lib/domain';
-export function matchesSummary(t:any,key:string,reportingStatus:(t:any)=>string){
- if(key==='done')return t.status==='done';
- if(key==='active')return ['assigned','working','review','returned'].includes(t.status);
- if(key==='overdue'||key==='soon')return deadlineState(t)===key;
- if(key==='missing'||key==='returned')return reportingStatus(t)===key;
- return true;
+import React from "react";
+import { deadlineState, stateNames } from "@/lib/domain";
+export function matchesSummary(
+  t: any,
+  key: string,
+  reportingStatus: (t: any) => string,
+) {
+  if (key === "done") return t.status === "done";
+  if (key === "active")
+    return ["assigned", "working", "review", "returned"].includes(t.status);
+  if (key === "overdue" || key === "soon") return deadlineState(t) === key;
+  if (key === "missing" || key === "returned")
+    return reportingStatus(t) === key;
+  return true;
 }
-export function ReportingDashboard({tasks,reports,units,reportingStatus,onFilter,onTask}:any){
- const done=tasks.filter((t:any)=>t.status==='done').length;
- const average=tasks.length?Math.round(tasks.reduce((sum:number,t:any)=>sum+Math.min(100,Math.max(0,Number(t.progress)||0)),0)/tasks.length):0;
- const metrics=[['all','Tổng nhiệm vụ','#355f96'],['done','Đã hoàn thành','#258152'],['active','Đang thực hiện','#a77718'],['overdue','Quá hạn nhiệm vụ','#bb3048'],['missing','Chưa gửi, chậm báo cáo','#aa5922'],['returned','Báo cáo cần bổ sung','#8354a0']];
- const priority=[...tasks].filter((t:any)=>deadlineState(t)==='overdue'||deadlineState(t)==='soon'||['missing','returned'].includes(reportingStatus(t))).sort((a:any,b:any)=>a.due.localeCompare(b.due)).slice(0,5);
- const rows=units.map((u:any)=>({...u,items:tasks.filter((t:any)=>t.unit===u.id||(t.partners||[]).includes(u.id))})).filter((u:any)=>u.items.length);
- return <div className="unit-dashboard"><p className="muted">Tổng hợp theo kỳ đã chọn, trong phạm vi nhiệm vụ được phân quyền.</p><div className="unit-dashboard-metrics">{metrics.map(([key,label,color])=><button key={key} className="panel unit-dashboard-metric" onClick={()=>onFilter(key)} style={{borderTopColor:color}}><span>{label}</span><strong style={{color}}>{tasks.filter((t:any)=>matchesSummary(t,key,reportingStatus)).length}</strong><small>Xem nhiệm vụ →</small></button>)}</div>
- <div className="unit-dashboard-columns"><section className="panel unit-task-card"><h2>Tiến độ tổng thể</h2><button className="unit-progress-link" onClick={()=>onFilter('all')}><span className="unit-progress-caption"><b>Tiến độ bình quân đã xác nhận</b><strong>{average}%</strong></span><progress max={100} value={average} aria-label="Tiến độ bình quân đã xác nhận"/><span className="unit-progress-hint">Bấm để xem các phần việc →</span></button><p><b>{done}/{tasks.length}</b> nhiệm vụ hoàn thành đã xác nhận.</p><p className="muted">Tỷ lệ bình quân tính theo tiến độ của từng nhiệm vụ. Gửi báo cáo không tự động xác nhận hoàn thành.</p><div className="unit-report-totals">{[['draft','Bản nháp'],['submitted','Chờ xác nhận'],['confirmed','Đã xác nhận']].map(([state,label])=><span key={state}><b>{reports.filter((r:any)=>r.state===state).length}</b> {label}</span>)}</div></section>
- <section className="panel unit-task-card"><h2>Nhiệm vụ cần ưu tiên</h2>{priority.map((t:any)=><button className="unit-dashboard-task" key={t.id} onClick={()=>onTask(t)}><b>{t.title}</b><span>Hạn: {t.due.split('-').reverse().join('/')} · {deadlineState(t)==='overdue'?'Quá hạn nhiệm vụ':deadlineState(t)==='soon'?'Sắp đến hạn':stateNames[t.status]}</span>{['missing','returned'].includes(reportingStatus(t))&&<span className="unit-dashboard-warning">{reportingStatus(t)==='missing'?'Chưa gửi, chậm báo cáo':'Báo cáo cần bổ sung'}</span>}</button>)}{!priority.length&&<p className="muted">Không có nhiệm vụ cần nhắc trong kỳ này.</p>}<button className="btn" onClick={()=>onFilter('soon')}>Xem nhiệm vụ sắp đến hạn</button></section></div>
- <section className="panel unit-task-card"><h2>Tiến độ theo đơn vị được phân quyền</h2><p className="muted">Gồm nhiệm vụ chủ trì và phối hợp. Một nhiệm vụ có thể liên quan nhiều đơn vị.</p><div className="unit-dashboard-units">{rows.map((u:any)=>{const progress=Math.round(u.items.reduce((sum:number,t:any)=>sum+Math.min(100,Math.max(0,Number(t.progress)||0)),0)/u.items.length);return <button className="unit-progress-link" key={u.id} onClick={()=>onFilter('all',u.id)}><span className="unit-progress-caption"><b>{u.name}</b><strong>{progress}%</strong></span><progress max={100} value={progress} aria-label={'Tiến độ '+u.name}/><span className="unit-progress-hint">{u.items.length} nhiệm vụ · {u.items.filter((t:any)=>t.status==='done').length} hoàn thành · Bấm xem phần việc →</span></button>})}</div>{!tasks.length&&<p className="muted">Chưa có nhiệm vụ trong kỳ này.</p>}</section></div>;
+export function ReportingDashboard({
+  tasks,
+  reports,
+  units,
+  reportingStatus,
+  onFilter,
+  onTask,
+}: any) {
+  const done = tasks.filter((t: any) => t.status === "done").length;
+  const average = tasks.length
+    ? Math.round(
+        tasks.reduce(
+          (sum: number, t: any) =>
+            sum + Math.min(100, Math.max(0, Number(t.progress) || 0)),
+          0,
+        ) / tasks.length,
+      )
+    : 0;
+  const metrics = [
+    ["all", "Tổng nhiệm vụ", "#355f96"],
+    ["done", "Đã hoàn thành", "#258152"],
+    ["active", "Đang thực hiện", "#a77718"],
+    ["overdue", "Quá hạn nhiệm vụ", "#bb3048"],
+    ["missing", "Chưa gửi, chậm báo cáo", "#aa5922"],
+    ["returned", "Báo cáo cần bổ sung", "#8354a0"],
+  ];
+  const priority = [...tasks]
+    .filter(
+      (t: any) =>
+        deadlineState(t) === "overdue" ||
+        deadlineState(t) === "soon" ||
+        ["missing", "returned"].includes(reportingStatus(t)),
+    )
+    .sort((a: any, b: any) => a.due.localeCompare(b.due))
+    .slice(0, 5);
+  const rows = units
+    .map((u: any) => ({
+      ...u,
+      items: tasks.filter(
+        (t: any) => t.unit === u.id || (t.partners || []).includes(u.id),
+      ),
+    }))
+    .filter((u: any) => u.items.length);
+  return (
+    <div className="unit-dashboard">
+      <p className="muted">
+        Tổng hợp theo kỳ đã chọn, trong phạm vi nhiệm vụ được phân quyền.
+      </p>
+      <div className="unit-dashboard-metrics">
+        {metrics.map(([key, label, color]) => (
+          <button
+            key={key}
+            className="panel unit-dashboard-metric"
+            onClick={() => onFilter(key)}
+            style={{ borderTopColor: color }}
+          >
+            <span>{label}</span>
+            <strong style={{ color }}>
+              {
+                tasks.filter((t: any) =>
+                  matchesSummary(t, key, reportingStatus),
+                ).length
+              }
+            </strong>
+            <small>Xem nhiệm vụ →</small>
+          </button>
+        ))}
+      </div>
+      <div className="unit-dashboard-columns">
+        <section className="panel unit-task-card">
+          <h2>Tiến độ tổng thể</h2>
+          <button
+            className="unit-progress-link"
+            onClick={() => onFilter("all")}
+          >
+            <span className="unit-progress-caption">
+              <b>Tiến độ bình quân đã xác nhận</b>
+              <strong>{average}%</strong>
+            </span>
+            <progress
+              max={100}
+              value={average}
+              aria-label="Tiến độ bình quân đã xác nhận"
+            />
+            <span className="unit-progress-hint">
+              Bấm để xem các phần việc →
+            </span>
+          </button>
+          <p>
+            <b>
+              {done}/{tasks.length}
+            </b>{" "}
+            nhiệm vụ hoàn thành đã xác nhận.
+          </p>
+          <p className="muted">
+            Tỷ lệ bình quân tính theo tiến độ của từng nhiệm vụ. Gửi báo cáo
+            không tự động xác nhận hoàn thành.
+          </p>
+          <div className="unit-report-totals">
+            {[
+              ["draft", "Bản nháp"],
+              ["submitted", "Chờ xác nhận"],
+              ["confirmed", "Đã xác nhận"],
+            ].map(([state, label]) => (
+              <span key={state}>
+                <b>{reports.filter((r: any) => r.state === state).length}</b>{" "}
+                {label}
+              </span>
+            ))}
+          </div>
+        </section>
+        <section className="panel unit-task-card">
+          <h2>Nhiệm vụ cần ưu tiên</h2>
+          {priority.map((t: any) => (
+            <button
+              className="unit-dashboard-task"
+              key={t.id}
+              onClick={() => onTask(t)}
+            >
+              <b>{t.title}</b>
+              <span>
+                Hạn: {t.due.split("-").reverse().join("/")} ·{" "}
+                {deadlineState(t) === "overdue"
+                  ? "Quá hạn nhiệm vụ"
+                  : deadlineState(t) === "soon"
+                    ? "Sắp đến hạn"
+                    : stateNames[t.status]}
+              </span>
+              {["missing", "returned"].includes(reportingStatus(t)) && (
+                <span className="unit-dashboard-warning">
+                  {reportingStatus(t) === "missing"
+                    ? "Chưa gửi, chậm báo cáo"
+                    : "Báo cáo cần bổ sung"}
+                </span>
+              )}
+            </button>
+          ))}
+          {!priority.length && (
+            <p className="muted">Không có nhiệm vụ cần nhắc trong kỳ này.</p>
+          )}
+          <button className="btn" onClick={() => onFilter("soon")}>
+            Xem nhiệm vụ sắp đến hạn
+          </button>
+        </section>
+      </div>
+      <section className="panel unit-task-card">
+        <h2>Tiến độ theo đơn vị được phân quyền</h2>
+        <p className="muted">
+          Gồm nhiệm vụ chủ trì và phối hợp. Một nhiệm vụ có thể liên quan nhiều
+          đơn vị.
+        </p>
+        <div className="unit-dashboard-units">
+          {rows.map((u: any) => {
+            const progress = Math.round(
+              u.items.reduce(
+                (sum: number, t: any) =>
+                  sum + Math.min(100, Math.max(0, Number(t.progress) || 0)),
+                0,
+              ) / u.items.length,
+            );
+            return (
+              <button
+                className="unit-progress-link"
+                key={u.id}
+                onClick={() => onFilter("all", u.id)}
+              >
+                <span className="unit-progress-caption">
+                  <b>{u.name}</b>
+                  <strong>{progress}%</strong>
+                </span>
+                <progress
+                  max={100}
+                  value={progress}
+                  aria-label={"Tiến độ " + u.name}
+                />
+                <span className="unit-progress-hint">
+                  {u.items.length} nhiệm vụ ·{" "}
+                  {u.items.filter((t: any) => t.status === "done").length} hoàn
+                  thành · Bấm xem phần việc →
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {!tasks.length && (
+          <p className="muted">Chưa có nhiệm vụ trong kỳ này.</p>
+        )}
+      </section>
+    </div>
+  );
 }

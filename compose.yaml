@@ -13,7 +13,7 @@ services:
       - ./data:/data
 
   # Service Caddy (tùy chọn cấp SSL tự động cổng 80/443).
-  # Nếu máy chủ đã có Nginx/Web Server hoặc bạn truy cập trực tiếp qua cổng 8208, 
+  # Nếu máy chủ đã có Nginx/Web Server hoặc bạn truy cập trực tiếp qua cổng 8208,
   # Caddy không cần thiết và được tắt bên dưới để tránh xung đột cổng 80/443.
   # https:
   #   image: caddy:2

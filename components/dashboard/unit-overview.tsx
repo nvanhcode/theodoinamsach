@@ -1,6 +1,73 @@
-import {Building2} from 'lucide-react';
-import {unitSections} from '@/lib/unit-overview';
-export function UnitOverview({units,tasks,scope,organization}:any){
- const sections=unitSections(units,tasks,scope);const max=Math.max(1,...sections.flatMap(s=>s.units.map(u=>u.lead)));
- return <section className="panel unit-overview"><div className="panel-head"><h2>Cơ cấu đơn vị và nhiệm vụ</h2><span className="muted">{sections.reduce((n,s)=>n+s.units.length,0)} đơn vị</span></div><div className="panel-body"><div className="unit-map-root"><Building2 size={20}/><strong>{organization}</strong></div>{sections.length?<div className="unit-map-groups">{sections.map(s=><details open className="unit-map-group" key={s.key}><summary><strong>{s.title}</strong><span>{s.total} nhiệm vụ chủ trì</span></summary><div className="unit-map-list">{s.units.map(u=><article key={u.id} className="unit-map-item"><div className="unit-map-name">{u.name}</div>{u.parentUnitId&&<div className="muted unit-map-parent">Trực thuộc: {units.find((p:any)=>p.id===u.parentUnitId)?.name||'Đơn vị cấp trên'}</div>}<div className="unit-map-counts"><span>Chủ trì: <b>{u.lead}</b></span><span>Phối hợp: <b>{u.partner}</b></span></div><div className="bar-track"><span style={{width:(u.lead/max*100)+'%'}}/></div></article>)}</div>{s.shared>0&&<p className="muted text-sm px-4 pb-3">Nhiệm vụ giao chung trong khối: <b>{s.shared}</b></p>}</details>)}</div>:<p className="unit-map-empty">{units.length?'Không có đơn vị phù hợp với bộ lọc đang chọn.':'Chưa tải được danh mục cơ quan, đơn vị.'}</p>}</div></section>;
+import { Building2 } from "lucide-react";
+import { unitSections } from "@/lib/unit-overview";
+export function UnitOverview({ units, tasks, scope, organization }: any) {
+  const sections = unitSections(units, tasks, scope);
+  const max = Math.max(
+    1,
+    ...sections.flatMap((s) => s.units.map((u) => u.lead)),
+  );
+  return (
+    <section className="panel unit-overview">
+      <div className="panel-head">
+        <h2>Cơ cấu đơn vị và nhiệm vụ</h2>
+        <span className="muted">
+          {sections.reduce((n, s) => n + s.units.length, 0)} đơn vị
+        </span>
+      </div>
+      <div className="panel-body">
+        <div className="unit-map-root">
+          <Building2 size={20} />
+          <strong>{organization}</strong>
+        </div>
+        {sections.length ? (
+          <div className="unit-map-groups">
+            {sections.map((s) => (
+              <details open className="unit-map-group" key={s.key}>
+                <summary>
+                  <strong>{s.title}</strong>
+                  <span>{s.total} nhiệm vụ chủ trì</span>
+                </summary>
+                <div className="unit-map-list">
+                  {s.units.map((u) => (
+                    <article key={u.id} className="unit-map-item">
+                      <div className="unit-map-name">{u.name}</div>
+                      {u.parentUnitId && (
+                        <div className="muted unit-map-parent">
+                          Trực thuộc:{" "}
+                          {units.find((p: any) => p.id === u.parentUnitId)
+                            ?.name || "Đơn vị cấp trên"}
+                        </div>
+                      )}
+                      <div className="unit-map-counts">
+                        <span>
+                          Chủ trì: <b>{u.lead}</b>
+                        </span>
+                        <span>
+                          Phối hợp: <b>{u.partner}</b>
+                        </span>
+                      </div>
+                      <div className="bar-track">
+                        <span style={{ width: (u.lead / max) * 100 + "%" }} />
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                {s.shared > 0 && (
+                  <p className="muted text-sm px-4 pb-3">
+                    Nhiệm vụ giao chung trong khối: <b>{s.shared}</b>
+                  </p>
+                )}
+              </details>
+            ))}
+          </div>
+        ) : (
+          <p className="unit-map-empty">
+            {units.length
+              ? "Không có đơn vị phù hợp với bộ lọc đang chọn."
+              : "Chưa tải được danh mục cơ quan, đơn vị."}
+          </p>
+        )}
+      </div>
+    </section>
+  );
 }
