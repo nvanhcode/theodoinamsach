@@ -454,11 +454,20 @@ async function handle(req: Request, initialDefault = false) {
             (f: any) =>
               ids.has(f.parent_id) ||
               docs.some((d: any) => d.id === f.parent_id) ||
-              reports.some((r: any) => r.id === f.parent_id),
+              reports.some((r: any) => r.id === f.parent_id) ||
+              tasks.some(
+                (t: any) =>
+                  Array.isArray(t.evidenceIds) && t.evidenceIds.includes(f.id),
+              ),
           )
           .map((f: any) => ({
             ...f,
-            taskId: reports.find((r: any) => r.id === f.parent_id)?.taskId,
+            taskId:
+              reports.find((r: any) => r.id === f.parent_id)?.taskId ||
+              tasks.find(
+                (t: any) =>
+                  Array.isArray(t.evidenceIds) && t.evidenceIds.includes(f.id),
+              )?.id,
           })),
         users: has(u, "admin", "tech")
           ? (await all("SELECT * FROM users")).map(publicUser)
@@ -470,22 +479,37 @@ async function handle(req: Request, initialDefault = false) {
       if (rid) {
         const r = await record(rid);
         check(r, "Không tìm thấy.", 404);
-        if (r.kind === "task")
+        if (r.kind === "task") {
           check(
             canSee(u, r),
             "Không tìm thấy nhiệm vụ hoặc không có quyền.",
             404,
           );
-        else if (r.kind === "report")
+          return json(
+            await all(
+              "SELECT * FROM audit WHERE target=? OR target IN (SELECT id FROM records WHERE kind='report' AND parent_id=?) ORDER BY time DESC LIMIT 200",
+              rid,
+              rid,
+            ),
+          );
+        } else if (r.kind === "report") {
           check(canReadReport(u, await record(r.taskId), r));
-        else
+          return json(
+            await all(
+              "SELECT * FROM audit WHERE target=? OR target=? ORDER BY time DESC LIMIT 200",
+              r.id,
+              r.previousId || r.id,
+            ),
+          );
+        } else {
           check(office(u) && (!r.restricted || r.allowedUsers?.includes(u.id)));
-        return json(
-          await all(
-            "SELECT * FROM audit WHERE target=? ORDER BY time DESC LIMIT 200",
-            rid,
-          ),
-        );
+          return json(
+            await all(
+              "SELECT * FROM audit WHERE target=? ORDER BY time DESC LIMIT 200",
+              rid,
+            ),
+          );
+        }
       }
       check(has(u, "admin", "tech"));
       return json(
@@ -1363,9 +1387,21 @@ async function handle(req: Request, initialDefault = false) {
         submitted: b.submit ? now() : null,
         previousId: old?.previousId || b.previousId || null,
       };
+      const isSupplementary = !!(
+        b.previousId ||
+        old?.previousId ||
+        old?.state === "returned"
+      );
+      const reportAction = b.submit
+        ? isSupplementary
+          ? "Gửi báo cáo bổ sung"
+          : "Gửi báo cáo"
+        : isSupplementary
+          ? "Lưu nháp báo cáo bổ sung"
+          : "Lưu nháp báo cáo";
       const r = old
-        ? await update(old, d, u, b.submit ? "Gửi báo cáo" : "Lưu nháp báo cáo")
-        : await insert("report", d, u, id(), t.id);
+        ? await update(old, d, u, reportAction)
+        : await insert("report", d, u, id(), t.id, [], reportAction);
       if (b.submit) await notify(t, "Báo cáo tiến độ cần xác nhận: " + t.title);
       return json(r);
     }
@@ -1380,36 +1416,89 @@ async function handle(req: Request, initialDefault = false) {
       check(["confirm", "return"].includes(b.action));
       if (b.action === "return")
         check(safe(b.reason), "Nhập yêu cầu bổ sung.", 400);
+      if (b.action === "confirm") {
+        if (b.progress !== undefined) {
+          check(
+            Number(b.progress) >= 0 && Number(b.progress) <= 100,
+            "Tiến độ hoàn thành phải từ 0 đến 100%.",
+            400,
+          );
+        }
+        if (b.quantity !== undefined) {
+          check(
+            Number.isFinite(Number(b.quantity)) && Number(b.quantity) >= 0,
+            "Khối lượng thực hiện không hợp lệ.",
+            400,
+          );
+        }
+      }
+
+      const progress =
+        b.progress !== undefined && b.progress !== null && !isNaN(Number(b.progress))
+          ? Math.min(100, Math.max(0, Number(b.progress)))
+          : r.progress;
+      const quantity =
+        b.quantity !== undefined && b.quantity !== null && !isNaN(Number(b.quantity))
+          ? Math.max(0, Number(b.quantity))
+          : (r.quantity || 0);
+      const result = b.result !== undefined ? safe(b.result, 100000) : r.result;
+      const difficulty = b.difficulty !== undefined ? safe(b.difficulty) : r.difficulty;
+      const proposal = b.proposal !== undefined ? safe(b.proposal) : r.proposal;
+
+      // Thu thập danh sách minh chứng từ báo cáo để đồng bộ vào hồ sơ nhiệm vụ
+      const reportFiles = await all("SELECT id FROM files WHERE parent_id=?", r.id);
+      const reportFileIds = reportFiles.map((f: any) => f.id);
+      const mergedEvidenceIds = Array.from(
+        new Set([...(t.evidenceIds || []), ...reportFileIds, ...(r.evidenceIds || [])]),
+      );
+
       const rd = {
         ...r,
+        progress,
+        quantity,
+        result,
+        difficulty,
+        proposal,
         state: b.action === "confirm" ? "confirmed" : "returned",
         reviewer: u.name,
         reviewed: now(),
         reason: safe(b.reason),
+        reviewNote: safe(b.reviewNote),
+      };
+      const nextTask = {
+        ...t,
+        progress,
+        quantity,
+        status:
+          progress === 100
+            ? t.status === "done"
+              ? "done"
+              : "review"
+            : ["draft", "assigned", "pending"].includes(t.status)
+              ? "working"
+              : t.status,
+        result: result || t.result,
+        difficulty: difficulty || t.difficulty,
+        proposal: proposal || t.proposal,
+        lastReport: r.submitted || now(),
+        evidenceIds: mergedEvidenceIds,
       };
       const nr =
-        b.action === "confirm" && r.unit === t.unit
+        b.action === "confirm"
           ? await updatePair(
               r,
               rd,
               t,
-              {
-                ...t,
-                progress: r.progress,
-                status: r.progress === 100 ? "review" : "working",
-                result: r.result,
-                difficulty: r.difficulty,
-                proposal: r.proposal,
-                lastReport: r.submitted,
-              },
+              nextTask,
               u,
               "Xác nhận và đồng bộ báo cáo",
+              "Duyệt và cập nhật tiến độ",
             )
           : await update(
               r,
               rd,
               u,
-              b.action === "confirm" ? "Xác nhận báo cáo" : "Trả lại báo cáo",
+              "Yêu cầu bổ sung báo cáo",
             );
       await notify(
         t,
@@ -1847,9 +1936,16 @@ async function handle(req: Request, initialDefault = false) {
       );
       check(f, "Không tìm thấy tệp.", 404);
       const r = await record(f.parent_id);
-      if (r.kind === "report")
-        check(canReadReport(u, await record(r.taskId), r));
-      else if (r.kind === "task") check(canSee(u, r));
+      if (r.kind === "report") {
+        const task = await record(r.taskId);
+        check(
+          canReadReport(u, task, r) ||
+            (task &&
+              canSee(u, task) &&
+              Array.isArray(task.evidenceIds) &&
+              task.evidenceIds.includes(f.id)),
+        );
+      } else if (r.kind === "task") check(canSee(u, r));
       else
         check(
           (!r.restricted || r.allowedUsers.includes(u.id)) &&

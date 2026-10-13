@@ -16,6 +16,10 @@ import {
   Send,
   Info,
   Trash2,
+  Sparkles,
+  RotateCcw,
+  ExternalLink,
+  ArrowRight,
 } from "lucide-react";
 import {
   Sheet,
@@ -569,16 +573,17 @@ export function AppModals() {
                                   primary
                                   disabled={busy}
                                   onClick={() =>
-                                    run(
-                                      () =>
-                                        api("report-action", {
-                                          id: r.id,
-                                          version: r.version,
-                                          action: "confirm",
-                                        }),
-                                      "Đã xác nhận báo cáo.",
-                                      false,
-                                    )
+                                    open("confirmReport", {
+                                      ...r,
+                                      action: "confirm",
+                                      originalProgress: r.progress,
+                                      progress: r.progress,
+                                      quantity: r.quantity ?? 0,
+                                      result: r.result || "",
+                                      difficulty: r.difficulty || "",
+                                      proposal: r.proposal || "",
+                                      reviewNote: "",
+                                    })
                                   }
                                 >
                                   Xác nhận
@@ -656,33 +661,87 @@ export function AppModals() {
                     .filter(
                       (f: any) =>
                         f.parent_id === selectedTask.id ||
-                        f.taskId === selectedTask.id,
+                        f.taskId === selectedTask.id ||
+                        (Array.isArray(selectedTask.evidenceIds) &&
+                          selectedTask.evidenceIds.includes(f.id)),
                     )
-                    .map((f: any) => (
-                      <div
-                        className="report-card flex justify-between"
-                        key={f.id}
-                      >
-                        <div>
-                          <b className="text-sm">{f.name}</b>
-                          <div className="muted text-xs">
-                            {(f.size / 1024).toFixed(0)} KB · {fmt(f.created)}
+                    .map((f: any) => {
+                      const isFromReport = f.parent_id !== selectedTask.id;
+                      const rep = isFromReport
+                        ? data.reports.find((r: any) => r.id === f.parent_id)
+                        : null;
+                      const canPreview =
+                        f.mime?.startsWith("image/") ||
+                        f.mime === "application/pdf";
+                      return (
+                        <div
+                          className="report-card flex items-center justify-between p-3.5 mb-2.5 rounded-lg border bg-white hover:border-slate-300 transition"
+                          key={f.id}
+                        >
+                          <div className="flex items-center gap-3 min-w-0 pr-3">
+                            <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 text-slate-600">
+                              <Paperclip size={18} />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <b
+                                  className="text-sm truncate max-w-[280px] sm:max-w-[360px]"
+                                  title={f.name}
+                                >
+                                  {f.name}
+                                </b>
+                                {isFromReport ? (
+                                  <span className="inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                                    Từ báo cáo {rep ? `· ${unitName(rep.unit)}` : ""}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                                    Đính kèm trực tiếp
+                                  </span>
+                                )}
+                              </div>
+                              <div className="muted text-xs mt-0.5">
+                                {(f.size / 1024).toFixed(0)} KB · Tải lên:{" "}
+                                {fmt(f.created)}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {canPreview && (
+                              <a
+                                className="btn small text-slate-700 bg-slate-100 hover:bg-slate-200 border-none"
+                                href={"/api/file?id=" + f.id + "&preview=1"}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Xem trước tài liệu"
+                              >
+                                <Eye size={14} />
+                                Xem
+                              </a>
+                            )}
+                            <a
+                              className="btn small"
+                              href={"/api/file?id=" + f.id}
+                              download={f.name}
+                              title="Tải về máy"
+                            >
+                              <Download size={14} />
+                              Tải về
+                            </a>
                           </div>
                         </div>
-                        <a className="btn small" href={"/api/file?id=" + f.id}>
-                          <Download size={15} />
-                          Tải về
-                        </a>
-                      </div>
-                    ))}
+                      );
+                    })}
                   {!data.files.some(
                     (f: any) =>
                       f.parent_id === selectedTask.id ||
-                      f.taskId === selectedTask.id,
+                      f.taskId === selectedTask.id ||
+                      (Array.isArray(selectedTask.evidenceIds) &&
+                        selectedTask.evidenceIds.includes(f.id)),
                   ) && (
                     <None
                       title="Chưa có minh chứng"
-                      text="Tệp được lưu theo nhiệm vụ và kiểm tra quyền khi tải về."
+                      text="Tệp được lưu theo nhiệm vụ hoặc tự động tích hợp từ báo cáo tiến độ khi được xác nhận."
                     />
                   )}
                 </TabsContent>
@@ -714,61 +773,134 @@ export function AppModals() {
                 <TabsContent value="history">
                   <h2 className="mb-5">Lịch sử thay đổi</h2>
                   <div className="timeline">
-                    {history.map((h: any) => (
-                      <article key={h.id}>
-                        <p>
-                          <b>{h.action}</b>
-                        </p>
-                        <small>
-                          {h.actor} · {fulltime(h.time)}
-                        </small>
-                        {h.before && h.after && (
-                          <details className="mt-2 text-xs">
-                            <summary className="cursor-pointer text-rose-800">
-                              Xem nội dung thay đổi
-                            </summary>
-                            <div className="mt-2 p-3 bg-slate-50 rounded overflow-auto">
-                              {Object.keys(JSON.parse(h.after))
-                                .filter(
-                                  (k) =>
-                                    ![
-                                      "_operation",
-                                      "id",
-                                      "kind",
-                                      "version",
-                                      "updated",
-                                    ].includes(k) &&
-                                    JSON.stringify(JSON.parse(h.before)[k]) !==
-                                      JSON.stringify(JSON.parse(h.after)[k]),
-                                )
-                                .map((k) => (
-                                  <div key={k} className="py-1">
-                                    <b>
-                                      {(
-                                        {
-                                          title: "Nội dung",
-                                          unit: "Đơn vị chủ trì",
-                                          due: "Thời hạn",
-                                          progress: "Tiến độ",
-                                          status: "Trạng thái",
-                                          assignedDate: "Ngày giao",
-                                          assignedTime: "Giờ giao",
-                                          reason: "Lý do",
-                                          result: "Kết quả",
-                                        } as any
-                                      )[k] || k}
-                                    </b>
-                                    :{" "}
-                                    {JSON.stringify(JSON.parse(h.before)[k]) ||
-                                      "—"}{" "}
-                                    → {JSON.stringify(JSON.parse(h.after)[k])}
-                                  </div>
-                                ))}
-                            </div>
-                          </details>
-                        )}
-                      </article>
-                    ))}
+                    {history.map((h: any) => {
+                      const fieldLabels: Record<string, string> = {
+                        title: "Nội dung",
+                        unit: "Đơn vị chủ trì",
+                        partners: "Đơn vị phối hợp",
+                        due: "Thời hạn",
+                        progress: "Tiến độ",
+                        status: "Trạng thái nhiệm vụ",
+                        state: "Trạng thái báo cáo",
+                        assignedDate: "Ngày giao",
+                        assignedTime: "Giờ giao",
+                        reason: "Lý do / Yêu cầu bổ sung",
+                        result: "Kết quả thực hiện",
+                        difficulty: "Khó khăn, vướng mắc",
+                        proposal: "Kiến nghị, đề xuất",
+                        quantity: "Khối lượng",
+                        output: "Sản phẩm đầu ra",
+                        owner: "Người phụ trách",
+                        leader: "Lãnh đạo theo dõi",
+                        field: "Lĩnh vực",
+                        target: "Chỉ tiêu",
+                        measure: "Đơn vị tính",
+                        note: "Ghi chú",
+                        lastReport: "Thời điểm báo cáo gần nhất",
+                        reviewer: "Người duyệt",
+                        reviewed: "Thời điểm duyệt",
+                        product: "Sản phẩm hoàn thành",
+                      };
+                      const formatVal = (k: string, v: any) => {
+                        if (v === null || v === undefined) return "—";
+                        if (k === "state") {
+                          return (
+                            {
+                              draft: "Bản nháp",
+                              submitted: "Chờ xác nhận",
+                              confirmed: "Đã xác nhận",
+                              returned: "Cần bổ sung",
+                            }[v as string] || v
+                          );
+                        }
+                        if (k === "status") {
+                          return stateNames[v as string] || v;
+                        }
+                        if (k === "progress") {
+                          return `${v}%`;
+                        }
+                        if (k === "unit" || k === "partners") {
+                          if (Array.isArray(v)) return v.map(unitName).join(", ");
+                          return unitName(v);
+                        }
+                        if (typeof v === "object") return JSON.stringify(v);
+                        return String(v);
+                      };
+                      const ignoredKeys = [
+                        "_operation",
+                        "id",
+                        "kind",
+                        "version",
+                        "updated",
+                        "author",
+                        "taskId",
+                        "parent_id",
+                      ];
+
+                      return (
+                        <article key={h.id}>
+                          <p>
+                            <b>{h.action}</b>
+                          </p>
+                          <small>
+                            {h.actor} · {fulltime(h.time)}
+                          </small>
+                          {h.before && h.after && (
+                            <details className="mt-2 text-xs">
+                              <summary className="cursor-pointer text-rose-800">
+                                Xem nội dung thay đổi
+                              </summary>
+                              <div className="mt-2 p-3 bg-slate-50 rounded overflow-auto">
+                                {Object.keys(JSON.parse(h.after))
+                                  .filter(
+                                    (k) =>
+                                      !ignoredKeys.includes(k) &&
+                                      JSON.stringify(JSON.parse(h.before)[k]) !==
+                                        JSON.stringify(JSON.parse(h.after)[k]),
+                                  )
+                                  .map((k) => (
+                                    <div key={k} className="py-1">
+                                      <b>{fieldLabels[k] || k}</b>:{" "}
+                                      <span className="text-slate-500">
+                                        {formatVal(k, JSON.parse(h.before)[k])}
+                                      </span>{" "}
+                                      →{" "}
+                                      <span className="font-medium text-slate-900">
+                                        {formatVal(k, JSON.parse(h.after)[k])}
+                                      </span>
+                                    </div>
+                                  ))}
+                              </div>
+                            </details>
+                          )}
+                          {!h.before && h.after && (
+                            <details className="mt-2 text-xs">
+                              <summary className="cursor-pointer text-rose-800">
+                                Xem chi tiết ban đầu
+                              </summary>
+                              <div className="mt-2 p-3 bg-slate-50 rounded overflow-auto">
+                                {Object.keys(JSON.parse(h.after))
+                                  .filter(
+                                    (k) =>
+                                      !ignoredKeys.includes(k) &&
+                                      JSON.parse(h.after)[k] !== "" &&
+                                      JSON.parse(h.after)[k] !== null &&
+                                      JSON.parse(h.after)[k] !== undefined,
+                                  )
+                                  .map((k) => (
+                                    <div key={k} className="py-1">
+                                      <b>{fieldLabels[k] || k}</b>:{" "}
+                                      <span className="font-medium text-slate-900">
+                                        {formatVal(k, JSON.parse(h.after)[k])}
+                                      </span>
+                                    </div>
+                                  ))}
+                              </div>
+                            </details>
+                          )}
+                        </article>
+                      );
+                    })}
                   </div>
                 </TabsContent>
               </div>
@@ -808,6 +940,7 @@ export function AppModals() {
                       ? "Sửa báo cáo tiến độ"
                       : "Cập nhật tiến độ thực hiện",
                     returnReport: "Yêu cầu bổ sung báo cáo",
+                    confirmReport: "Xác nhận duyệt báo cáo tiến độ",
                     action: "Điều chỉnh quy trình nhiệm vụ",
                     period:
                       form.action === "reopen"
@@ -828,9 +961,11 @@ export function AppModals() {
               }
             </DialogTitle>
             <DialogDescription>
-              {["task", "document", "report"].includes(modal)
-                ? "Dữ liệu được lưu dùng chung và có lịch sử thay đổi."
-                : "Kiểm tra thông tin trước khi xác nhận."}
+              {modal === "confirmReport"
+                ? "Kiểm tra thông tin báo cáo trước khi xác nhận và cập nhật tiến độ công việc."
+                : ["task", "document", "report"].includes(modal)
+                  ? "Dữ liệu được lưu dùng chung và có lịch sử thay đổi."
+                  : "Kiểm tra thông tin trước khi xác nhận."}
             </DialogDescription>
           </DialogHeader>
           {error && (
@@ -1928,6 +2063,418 @@ export function AppModals() {
                 </Btn>
               </div>
             </div>
+          )}
+          {modal === "confirmReport" && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                run(
+                  () =>
+                    api("report-action", {
+                      id: form.id,
+                      version: form.version,
+                      action: "confirm",
+                      progress: Number(form.progress ?? 0),
+                      quantity: Number(form.quantity ?? 0),
+                      result: form.result || "",
+                      difficulty: form.difficulty || "",
+                      proposal: form.proposal || "",
+                      reviewNote: form.reviewNote || "",
+                    }),
+                  "Đã xác nhận báo cáo và cập nhật tiến độ công việc.",
+                  true,
+                  true,
+                );
+              }}
+              className="space-y-5"
+            >
+              {/* 1. Header Banner & Nhắc nhở đồng bộ */}
+              <div className="p-4 rounded-xl bg-gradient-to-r from-blue-50/90 via-indigo-50/60 to-slate-50 border border-blue-200/80 shadow-xs flex items-start gap-3.5">
+                <div className="w-10 h-10 rounded-lg bg-blue-600/10 text-blue-700 flex items-center justify-center shrink-0 mt-0.5">
+                  <ShieldCheck size={22} />
+                </div>
+                <div className="text-sm">
+                  <b className="text-blue-950 text-base font-semibold block">
+                    Thẩm định & Xác nhận duyệt báo cáo tiến độ
+                  </b>
+                  <p className="mt-1 text-slate-600 leading-relaxed">
+                    Bạn có thể kiểm tra và <b>trực tiếp hiệu chỉnh</b> tỉ lệ hoàn
+                    thành, khối lượng thực tế, kết quả hoặc ghi chú chỉ đạo trước
+                    khi duyệt. Sau khi xác nhận, tiến độ của nhiệm vụ sẽ được cập
+                    nhật đồng bộ và toàn bộ minh chứng kèm theo sẽ được lưu vào
+                    hồ sơ nhiệm vụ.
+                  </p>
+                </div>
+              </div>
+
+              {/* 2. Thẻ tóm tắt thông tin nguồn */}
+              <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/70 space-y-3 text-sm">
+                <div>
+                  <span className="text-xs uppercase tracking-wider font-semibold text-slate-500 block mb-1">
+                    Nhiệm vụ liên quan
+                  </span>
+                  <div className="font-semibold text-slate-900 text-base leading-snug">
+                    {selectedTask?.title || "Nhiệm vụ"}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-2.5 border-t border-slate-200 text-xs">
+                  <div>
+                    <span className="text-slate-500 block">Đơn vị báo cáo:</span>
+                    <b className="text-slate-800 text-sm">
+                      {unitName(form.unit)}
+                    </b>
+                    {form.authorName && (
+                      <div className="text-slate-500 mt-0.5">
+                        Người gửi: {form.authorName}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">Kỳ báo cáo:</span>
+                    <b className="text-slate-800 text-sm">
+                      {fmt(form.periodKey || form.week)}
+                    </b>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">Tiến độ nhiệm vụ hiện tại:</span>
+                    <b className="text-slate-800 text-sm">
+                      {selectedTask?.progress || 0}%
+                    </b>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">Thời gian nộp:</span>
+                    <span className="text-slate-800">
+                      {fulltime(form.submitted)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Khối Hiệu chỉnh Số liệu thẩm định */}
+              <div className="border border-indigo-100 rounded-xl p-4 bg-white shadow-xs space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 size={18} className="text-indigo-600" />
+                    <span className="font-semibold text-slate-800 text-sm">
+                      Số liệu thẩm định tiến độ
+                    </span>
+                  </div>
+                  <span className="text-xs text-indigo-700 bg-indigo-50 font-medium px-2.5 py-0.5 rounded-full border border-indigo-200">
+                    Cho phép hiệu chỉnh trước khi duyệt
+                  </span>
+                </div>
+
+                {/* Thanh tiến độ & Input % */}
+                <div className="space-y-2.5">
+                  <div className="flex justify-between items-center">
+                    <label className="text-sm font-medium text-slate-700">
+                      Tỉ lệ hoàn thành công việc (%):
+                    </label>
+                    <div className="flex items-center gap-3">
+                      {form.originalProgress !== undefined &&
+                        Number(form.originalProgress) !== Number(form.progress) && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              change("progress", form.originalProgress)
+                            }
+                            className="text-xs text-blue-600 hover:text-blue-800 underline inline-flex items-center gap-1"
+                            title="Khôi phục mức đơn vị báo cáo"
+                          >
+                            <RotateCcw size={12} />
+                            Đề xuất: {form.originalProgress}%
+                          </button>
+                        )}
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          className="w-20 text-center font-bold text-base border rounded-md px-2 py-1 text-emerald-800 bg-emerald-50 border-emerald-300 focus:outline-emerald-600"
+                          value={form.progress ?? 0}
+                          onChange={(e) => {
+                            const val = Math.min(
+                              100,
+                              Math.max(0, Number(e.target.value) || 0),
+                            );
+                            change("progress", val);
+                          }}
+                        />
+                        <span className="font-semibold text-slate-600">%</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Thanh trượt Range và Visual Progress bar */}
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value={form.progress ?? 0}
+                    onChange={(e) => change("progress", Number(e.target.value))}
+                    className="w-full accent-emerald-600 cursor-pointer h-2 bg-slate-200 rounded-lg appearance-none"
+                  />
+
+                  {/* Visual Bar */}
+                  <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden border border-slate-200">
+                    <div
+                      className={
+                        "h-full transition-all duration-300 rounded-full " +
+                        (Number(form.progress) >= 100
+                          ? "bg-emerald-600"
+                          : Number(form.progress) >= 50
+                            ? "bg-blue-600"
+                            : "bg-amber-500")
+                      }
+                      style={{
+                        width: `${Math.min(100, Math.max(0, Number(form.progress || 0)))}%`,
+                      }}
+                    />
+                  </div>
+
+                  {/* Nút chọn nhanh */}
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <span className="text-xs text-slate-500 mr-1">
+                      Mức nhanh:
+                    </span>
+                    {[25, 50, 75, 100].map((pct) => (
+                      <button
+                        key={pct}
+                        type="button"
+                        onClick={() => change("progress", pct)}
+                        className={
+                          "text-xs px-2.5 py-1 rounded-md font-medium border transition " +
+                          (Number(form.progress) === pct
+                            ? "bg-emerald-700 text-white border-emerald-700 shadow-xs"
+                            : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100")
+                        }
+                      >
+                        {pct}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Khối lượng hoàn thành */}
+                <div className="pt-2 border-t border-slate-100">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Khối lượng hoàn thành thực tế:
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    className="w-full sm:w-60 border rounded-lg px-3 py-2 text-sm bg-white"
+                    placeholder="Nhập số khối lượng đạt được..."
+                    value={form.quantity ?? 0}
+                    onChange={(e) => change("quantity", e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* 4. Khối Nội dung kết quả & Biên tập */}
+              <div className="border border-slate-200 rounded-xl p-4 bg-white shadow-xs space-y-3.5">
+                <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                  <Pencil size={16} className="text-slate-600" />
+                  <span className="font-semibold text-slate-800 text-sm">
+                    Nội dung kết quả thực hiện & Vướng mắc
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Kết quả thực hiện (Nội dung báo cáo):
+                  </label>
+                  <textarea
+                    rows={3}
+                    className="w-full border rounded-lg p-3 text-sm text-slate-800 bg-slate-50/50 focus:bg-white focus:border-blue-500 transition"
+                    placeholder="Mô tả chi tiết kết quả công việc đã thực hiện..."
+                    value={form.result || ""}
+                    onChange={(e) => change("result", e.target.value)}
+                  />
+                  <span className="text-[11px] text-slate-500 block mt-1">
+                    Người duyệt có thể biên tập lại nội dung kết quả để chuẩn
+                    hóa vào hồ sơ công việc chung.
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Khó khăn, vướng mắc (nếu có):
+                    </label>
+                    <textarea
+                      rows={2}
+                      className="w-full border rounded-lg p-2.5 text-sm text-amber-950 bg-amber-50/40 focus:bg-white focus:border-amber-500"
+                      placeholder="Nêu vướng mắc cần tháo gỡ..."
+                      value={form.difficulty || ""}
+                      onChange={(e) => change("difficulty", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Kiến nghị, đề xuất (nếu có):
+                    </label>
+                    <textarea
+                      rows={2}
+                      className="w-full border rounded-lg p-2.5 text-sm text-slate-800 bg-slate-50/50 focus:bg-white focus:border-blue-500"
+                      placeholder="Nêu kiến nghị phối hợp..."
+                      value={form.proposal || ""}
+                      onChange={(e) => change("proposal", e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {/* Ý kiến thẩm định / Ghi chú của người duyệt */}
+                <div className="pt-2 border-t border-slate-100">
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">
+                    Ý kiến / Ghi chú thẩm định của người duyệt:
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border border-blue-300 rounded-lg px-3 py-2 text-sm bg-blue-50/30 focus:bg-white focus:border-blue-600"
+                    placeholder="Nhập ghi chú hoặc ý kiến chỉ đạo (ví dụ: Đồng ý tiến độ; Yêu cầu dứt điểm trong tuần tới...)"
+                    value={form.reviewNote || ""}
+                    onChange={(e) => change("reviewNote", e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* 5. Khối Hồ sơ minh chứng đính kèm */}
+              {(() => {
+                const reportFiles = data.files.filter(
+                  (f: any) =>
+                    f.parent_id === form.id ||
+                    (Array.isArray(form.evidenceIds) &&
+                      form.evidenceIds.includes(f.id)),
+                );
+                return (
+                  <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 shadow-xs space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Paperclip size={16} className="text-slate-600" />
+                        <span className="font-semibold text-slate-800 text-sm">
+                          Hồ sơ minh chứng báo cáo ({reportFiles.length} tệp)
+                        </span>
+                      </div>
+                      <span className="text-xs text-emerald-700 font-medium bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                        Sẽ tự động tích hợp vào nhiệm vụ
+                      </span>
+                    </div>
+
+                    {reportFiles.length > 0 ? (
+                      <div className="space-y-2">
+                        {reportFiles.map((f: any) => {
+                          const canPreview =
+                            f.mime?.startsWith("image/") ||
+                            f.mime === "application/pdf";
+                          return (
+                            <div
+                              key={f.id}
+                              className="flex items-center justify-between p-3 rounded-lg border bg-white hover:border-slate-300 transition text-sm"
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0 pr-3">
+                                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center shrink-0">
+                                  <Paperclip size={16} />
+                                </div>
+                                <div className="min-w-0">
+                                  <b
+                                    className="block truncate max-w-[280px] sm:max-w-[380px]"
+                                    title={f.name}
+                                  >
+                                    {f.name}
+                                  </b>
+                                  <div className="text-xs text-slate-500">
+                                    {(f.size / 1024).toFixed(0)} KB ·{" "}
+                                    {fmt(f.created)}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {canPreview && (
+                                  <a
+                                    className="btn small text-slate-700 bg-slate-100 hover:bg-slate-200 border-none"
+                                    href={"/api/file?id=" + f.id + "&preview=1"}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    <Eye size={13} />
+                                    Xem
+                                  </a>
+                                )}
+                                <a
+                                  className="btn small"
+                                  href={"/api/file?id=" + f.id}
+                                  download={f.name}
+                                >
+                                  <Download size={13} />
+                                  Tải về
+                                </a>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="p-3 border border-dashed rounded-lg text-center text-xs text-slate-500 bg-white">
+                        Báo cáo này chưa có tệp minh chứng đính kèm.
+                      </div>
+                    )}
+
+                    {/* Cho phép người duyệt đính kèm thêm biên bản thẩm định nếu muốn */}
+                    <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between">
+                      <label className="inline-flex items-center gap-1.5 text-xs text-blue-700 hover:text-blue-900 font-medium cursor-pointer">
+                        <Plus size={14} />
+                        Đính kèm thêm biên bản/tài liệu thẩm định
+                        <input
+                          type="file"
+                          className="hidden"
+                          disabled={busy}
+                          accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.mp4,.webm"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f)
+                              run(
+                                () => upload(form.id, f),
+                                "Đã lưu tệp thẩm định.",
+                                false,
+                              );
+                          }}
+                        />
+                      </label>
+                      <span className="text-[11px] text-slate-400">
+                        PDF, Word, Excel, Ảnh · Tối đa 25MB
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* 6. Nút hành động ở chân modal */}
+              <div className="form-footer mt-6 pt-4 border-t border-slate-200 flex items-center justify-between gap-3">
+                <Btn onClick={() => setModal("")}>Hủy</Btn>
+                <div className="flex items-center gap-2">
+                  <Btn
+                    small
+                    onClick={() =>
+                      open("returnReport", {
+                        id: form.id,
+                        version: form.version,
+                        action: "return",
+                      })
+                    }
+                  >
+                    Yêu cầu bổ sung
+                  </Btn>
+                  <Btn primary type="submit" disabled={busy}>
+                    <CheckCircle2 size={16} />
+                    Xác nhận duyệt & Cập nhật tiến độ
+                  </Btn>
+                </div>
+              </div>
+            </form>
           )}
           {[
             "action",

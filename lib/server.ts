@@ -161,6 +161,7 @@ export async function insert(
   rid = id(),
   parent: string | null = null,
   extra: any[] = [],
+  action?: string,
 ) {
   const time = now();
   await db().batch([
@@ -172,7 +173,7 @@ export async function insert(
       JSON.stringify(data),
       time,
     ),
-    log(u, "Tạo " + kind, rid, null, data),
+    log(u, action || ("Tạo " + kind), rid, null, data),
     ...extra,
   ]);
   return { id: rid, kind, ...data, version: 1, updated: time };
@@ -240,6 +241,7 @@ export async function updatePair(
   bdata: any,
   u: any,
   action: string,
+  actionB?: string,
 ) {
   const op = id(),
     time = now();
@@ -268,14 +270,14 @@ export async function updatePair(
       op,
     ),
     ...[
-      [a, adata],
-      [b, bdata],
-    ].map(([old, next]) =>
+      [a, adata, action],
+      [b, bdata, actionB || action],
+    ].map(([old, next, act]) =>
       stmt(
         "INSERT INTO audit(id,actor,action,target,before,after,time) SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM records WHERE id=? AND json_extract(data,'$._operation')=?)",
         id(),
         u.name,
-        action,
+        act,
         old.id,
         JSON.stringify(old),
         clean(next),
