@@ -1399,10 +1399,36 @@ async function handle(req: Request, initialDefault = false) {
         : isSupplementary
           ? "Lưu nháp báo cáo bổ sung"
           : "Lưu nháp báo cáo";
-      const r = old
-        ? await update(old, d, u, reportAction)
-        : await insert("report", d, u, id(), t.id, [], reportAction);
-      if (b.submit) await notify(t, "Báo cáo tiến độ cần xác nhận: " + t.title);
+      let r: any;
+      if (b.submit) {
+        const nextTask = {
+          ...t,
+          status: "review",
+          lastReport: now(),
+        };
+        const taskAction = isSupplementary
+          ? "Gửi báo cáo bổ sung: Chờ xác nhận kết quả"
+          : "Gửi báo cáo: Chờ xác nhận kết quả";
+        if (old) {
+          r = await updatePair(
+            old,
+            d,
+            t,
+            nextTask,
+            u,
+            reportAction,
+            taskAction,
+          );
+        } else {
+          r = await insert("report", d, u, id(), t.id, [], reportAction);
+          await update(t, nextTask, u, taskAction);
+        }
+        await notify(t, "Báo cáo tiến độ cần xác nhận: " + t.title);
+      } else {
+        r = old
+          ? await update(old, d, u, reportAction)
+          : await insert("report", d, u, id(), t.id, [], reportAction);
+      }
       return json(r);
     }
     if (path === "report-action" && method === "POST") {
@@ -1465,16 +1491,23 @@ async function handle(req: Request, initialDefault = false) {
         reason: safe(b.reason),
         reviewNote: safe(b.reviewNote),
       };
+      const otherSubmittedReports = (await records("report")).some(
+        (other: any) =>
+          other.taskId === t.id &&
+          other.id !== r.id &&
+          other.state === "submitted",
+      );
       const nextTask = {
         ...t,
         progress,
         quantity,
-        status:
-          progress === 100
+        status: otherSubmittedReports
+          ? "review"
+          : progress === 100
             ? t.status === "done"
               ? "done"
               : "review"
-            : ["draft", "assigned", "pending"].includes(t.status)
+            : ["draft", "assigned", "pending", "review"].includes(t.status)
               ? "working"
               : t.status,
         result: result || t.result,

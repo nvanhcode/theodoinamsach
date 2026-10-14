@@ -158,7 +158,11 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
   async function persist(submit: boolean) {
     const r = await api("report", { ...form, taskId: task.id, submit });
     setForm(r);
-    await load();
+    const fresh = await load();
+    if (fresh?.tasks && task) {
+      const updated = fresh.tasks.find((item: any) => item.id === task.id);
+      if (updated) setTask(updated);
+    }
     return r;
   }
   async function save(submit: boolean) {
@@ -224,6 +228,10 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
         try {
           const fresh = await load();
           setForm(fresh.reports.find((r: any) => r.id === saved.id) || saved);
+          if (fresh?.tasks && task) {
+            const updated = fresh.tasks.find((item: any) => item.id === task.id);
+            if (updated) setTask(updated);
+          }
         } catch (e: any) {
           setError(e.message);
         }
@@ -685,6 +693,10 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
             <div className="unit-report-form">
               <section className="unit-task-info">
                 <h2>{task.title}</h2>
+                <p>
+                  Trạng thái nhiệm vụ:{" "}
+                  <b>{stateNames[task.status] || task.status}</b>
+                </p>
                 <p>
                   Hạn hoàn thành: <b>{dates(task.due)}</b>
                 </p>

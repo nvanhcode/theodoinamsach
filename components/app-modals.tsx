@@ -153,8 +153,8 @@ export function AppModals() {
               CHI TIẾT NHIỆM VỤ · THÁNG{" "}
               {selectedTask
                 ? Number(selectedTask.month.slice(5)) +
-                  "/" +
-                  selectedTask.month.slice(0, 4)
+                "/" +
+                selectedTask.month.slice(0, 4)
                 : ""}
             </div>
             <SheetTitle className="text-xl leading-relaxed pr-5">
@@ -215,9 +215,9 @@ export function AppModals() {
                       [
                         "Thời gian giao nhiệm vụ",
                         fmt(selectedTask.assignedDate) +
-                          (selectedTask.assignedTime
-                            ? " · " + selectedTask.assignedTime
-                            : ""),
+                        (selectedTask.assignedTime
+                          ? " · " + selectedTask.assignedTime
+                          : ""),
                       ],
                       ["Thời hạn gốc", fmt(selectedTask.originalDue)],
                       ["Thời hạn hiện hành", fmt(selectedTask.due)],
@@ -234,12 +234,12 @@ export function AppModals() {
                       [
                         "Tình trạng báo cáo định kỳ",
                         reportLabels[
-                          reportState(
-                            selectedTask,
-                            data.reports,
-                            new Date(),
-                            cfg,
-                          )
+                        reportState(
+                          selectedTask,
+                          data.reports,
+                          new Date(),
+                          cfg,
+                        )
                         ],
                       ],
                     ].map(([label, value]) => (
@@ -446,25 +446,28 @@ export function AppModals() {
                   {!(data.milestones || []).some(
                     (m: any) => m.taskId === selectedTask.id,
                   ) && (
-                    <None
-                      title="Chưa có đầu việc con"
-                      text="Phân rã nhiệm vụ thành các mốc, người phụ trách và kết quả riêng."
-                    />
-                  )}
+                      <None
+                        title="Chưa có đầu việc con"
+                        text="Phân rã nhiệm vụ thành các mốc, người phụ trách và kết quả riêng."
+                      />
+                    )}
                 </TabsContent>
                 <TabsContent value="reports">
                   <div className="flex justify-between items-center mb-5">
                     <h2>Báo cáo của đơn vị</h2>
+
                     {canReport(user, selectedTask) &&
                       ["assigned", "working", "review", "returned"].includes(
                         selectedTask.status,
                       ) && (
+
                         <Btn
                           primary
                           small
                           onClick={() =>
                             open("report", {
                               taskId: selectedTask.id,
+                              unit: selectedTask.unit,
                               progress: selectedTask.progress || 0,
                               quantity: 0,
                               result: "",
@@ -625,11 +628,11 @@ export function AppModals() {
                   {!data.reports.some(
                     (r: any) => r.taskId === selectedTask.id,
                   ) && (
-                    <None
-                      title="Chưa có báo cáo tiến độ"
-                      text="Lưu nháp để tiếp tục nhập, hoặc gửi báo cáo đến người xác nhận."
-                    />
-                  )}
+                      <None
+                        title="Chưa có báo cáo tiến độ"
+                        text="Lưu nháp để tiếp tục nhập, hoặc gửi báo cáo đến người xác nhận."
+                      />
+                    )}
                 </TabsContent>
                 <TabsContent value="files">
                   <h2 className="mb-4">Hồ sơ minh chứng</h2>
@@ -739,11 +742,11 @@ export function AppModals() {
                       (Array.isArray(selectedTask.evidenceIds) &&
                         selectedTask.evidenceIds.includes(f.id)),
                   ) && (
-                    <None
-                      title="Chưa có minh chứng"
-                      text="Tệp được lưu theo nhiệm vụ hoặc tự động tích hợp từ báo cáo tiến độ khi được xác nhận."
-                    />
-                  )}
+                      <None
+                        title="Chưa có minh chứng"
+                        text="Tệp được lưu theo nhiệm vụ hoặc tự động tích hợp từ báo cáo tiến độ khi được xác nhận."
+                      />
+                    )}
                 </TabsContent>
                 <TabsContent value="comments">
                   <h2 className="mb-4">Phối hợp và ý kiến chỉ đạo</h2>
@@ -856,7 +859,7 @@ export function AppModals() {
                                     (k) =>
                                       !ignoredKeys.includes(k) &&
                                       JSON.stringify(JSON.parse(h.before)[k]) !==
-                                        JSON.stringify(JSON.parse(h.after)[k]),
+                                      JSON.stringify(JSON.parse(h.after)[k]),
                                   )
                                   .map((k) => (
                                     <div key={k} className="py-1">
@@ -1160,9 +1163,9 @@ export function AppModals() {
                       <Save />
                       {busy && importSaveProgress.total
                         ? "Đang lưu " +
-                          importSaveProgress.finished +
-                          "/" +
-                          importSaveProgress.total
+                        importSaveProgress.finished +
+                        "/" +
+                        importSaveProgress.total
                         : importRows.every((r: any) => r.saved)
                           ? "Đã lưu hệ thống"
                           : "Lưu hệ thống"}
@@ -1258,8 +1261,8 @@ export function AppModals() {
                               v
                                 ? [...(form.partners || []), u.id]
                                 : (form.partners || []).filter(
-                                    (x: string) => x !== u.id,
-                                  ),
+                                  (x: string) => x !== u.id,
+                                ),
                             )
                           }
                         />
@@ -1434,8 +1437,8 @@ export function AppModals() {
                               v
                                 ? [...(form.allowedUsers || []), u.id]
                                 : (form.allowedUsers || []).filter(
-                                    (x: string) => x !== u.id,
-                                  ),
+                                  (x: string) => x !== u.id,
+                                ),
                             )
                           }
                         />
@@ -1987,7 +1990,7 @@ export function AppModals() {
               </div>
               <div className="hint mt-4">
                 <Info />
-                Gửi báo cáo để thủ trưởng xác nhận. Có thể tải minh chứng ngay
+                Gửi báo cáo để thủ trưởng xác nhận. Trạng thái nhiệm vụ sẽ chuyển thành "Chờ xác nhận kết quả". Có thể tải minh chứng ngay
                 bên dưới hoặc trong hồ sơ nhiệm vụ.
               </div>
               <div className="hint mt-4">
@@ -1999,11 +2002,11 @@ export function AppModals() {
                 · Hạn kỳ này:{" "}
                 {fulltime(
                   form.deadline ||
-                    reportWindow(
-                      tasks.find((t: any) => t.id === form.taskId) || {},
-                      new Date(),
-                      cfg,
-                    ).deadline,
+                  reportWindow(
+                    tasks.find((t: any) => t.id === form.taskId) || {},
+                    new Date(),
+                    cfg,
+                  ).deadline,
                 )}
               </div>
               <div className="evidence-upload mt-4">
@@ -2484,118 +2487,118 @@ export function AppModals() {
             "comment",
             "password",
           ].includes(modal) && (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const endpoint = (
-                  {
-                    action: "task-action",
-                    returnReport: "report-action",
-                    period: "period",
-                    remind: "remind",
-                    comment: "comment",
-                    password: "password",
-                  } as any
-                )[modal];
-                run(
-                  () => api(endpoint, form),
-                  "Đã ghi nhận thao tác.",
-                  true,
-                  modal !== "password",
-                ).then((r: any) => {
-                  if (r && modal === "password") {
-                    setUser(null);
-                    setForm({});
-                  }
-                });
-              }}
-            >
-              <div className="form-grid">
-                {modal === "action" && form.action === "carry" && (
-                  <>
-                    <Field label="Kỳ mới">
-                      <input
-                        type="month"
-                        required
-                        value={form.month || ""}
-                        onChange={(e) => change("month", e.target.value)}
-                      />
-                    </Field>
-                    <Field label="Thời hạn kỳ mới">
-                      <input
-                        type="date"
-                        required
-                        value={form.due || ""}
-                        onChange={(e) => change("due", e.target.value)}
-                      />
-                    </Field>
-                  </>
-                )}
-                {modal === "period" && (
-                  <div className="hint wide">
-                    {form.action === "reopen"
-                      ? "Mở điều chỉnh không xóa báo cáo đã chốt. Lần khóa tiếp theo tạo một phiên bản mới."
-                      : "Khóa sổ sẽ tạo bản chụp dữ liệu kỳ " +
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const endpoint = (
+                    {
+                      action: "task-action",
+                      returnReport: "report-action",
+                      period: "period",
+                      remind: "remind",
+                      comment: "comment",
+                      password: "password",
+                    } as any
+                  )[modal];
+                  run(
+                    () => api(endpoint, form),
+                    "Đã ghi nhận thao tác.",
+                    true,
+                    modal !== "password",
+                  ).then((r: any) => {
+                    if (r && modal === "password") {
+                      setUser(null);
+                      setForm({});
+                    }
+                  });
+                }}
+              >
+                <div className="form-grid">
+                  {modal === "action" && form.action === "carry" && (
+                    <>
+                      <Field label="Kỳ mới">
+                        <input
+                          type="month"
+                          required
+                          value={form.month || ""}
+                          onChange={(e) => change("month", e.target.value)}
+                        />
+                      </Field>
+                      <Field label="Thời hạn kỳ mới">
+                        <input
+                          type="date"
+                          required
+                          value={form.due || ""}
+                          onChange={(e) => change("due", e.target.value)}
+                        />
+                      </Field>
+                    </>
+                  )}
+                  {modal === "period" && (
+                    <div className="hint wide">
+                      {form.action === "reopen"
+                        ? "Mở điều chỉnh không xóa báo cáo đã chốt. Lần khóa tiếp theo tạo một phiên bản mới."
+                        : "Khóa sổ sẽ tạo bản chụp dữ liệu kỳ " +
                         month +
                         ". Các hồ sơ trong kỳ không được sửa cho đến khi mở điều chỉnh."}
-                  </div>
-                )}
-                {modal === "password" ? (
-                  <>
-                    <Field label="Mật khẩu hiện tại" wide>
-                      <input
+                    </div>
+                  )}
+                  {modal === "password" ? (
+                    <>
+                      <Field label="Mật khẩu hiện tại" wide>
+                        <input
+                          required
+                          type="password"
+                          value={form.old || ""}
+                          onChange={(e) => change("old", e.target.value)}
+                        />
+                      </Field>
+                      <Field label="Mật khẩu mới (tối thiểu 12 ký tự)" wide>
+                        <input
+                          required
+                          type="password"
+                          minLength={12}
+                          value={form.password || ""}
+                          onChange={(e) => change("password", e.target.value)}
+                        />
+                      </Field>
+                    </>
+                  ) : modal === "comment" ? (
+                    <Field label="Nội dung ý kiến" wide>
+                      <textarea
                         required
-                        type="password"
-                        value={form.old || ""}
-                        onChange={(e) => change("old", e.target.value)}
+                        value={form.text || ""}
+                        onChange={(e) => change("text", e.target.value)}
                       />
                     </Field>
-                    <Field label="Mật khẩu mới (tối thiểu 12 ký tự)" wide>
-                      <input
+                  ) : modal === "remind" ? (
+                    <Field label="Nội dung nhắc việc" wide>
+                      <textarea
                         required
-                        type="password"
-                        minLength={12}
-                        value={form.password || ""}
-                        onChange={(e) => change("password", e.target.value)}
+                        value={form.message || ""}
+                        onChange={(e) => change("message", e.target.value)}
                       />
                     </Field>
-                  </>
-                ) : modal === "comment" ? (
-                  <Field label="Nội dung ý kiến" wide>
-                    <textarea
-                      required
-                      value={form.text || ""}
-                      onChange={(e) => change("text", e.target.value)}
-                    />
-                  </Field>
-                ) : modal === "remind" ? (
-                  <Field label="Nội dung nhắc việc" wide>
-                    <textarea
-                      required
-                      value={form.message || ""}
-                      onChange={(e) => change("message", e.target.value)}
-                    />
-                  </Field>
-                ) : (
-                  <Field label="Lý do / căn cứ / yêu cầu bổ sung" wide>
-                    <textarea
-                      required={
-                        !(modal === "period" && form.action === "close")
-                      }
-                      value={form.reason || ""}
-                      onChange={(e) => change("reason", e.target.value)}
-                    />
-                  </Field>
-                )}
-              </div>
-              <div className="form-footer">
-                <Btn onClick={() => setModal("")}>Hủy</Btn>
-                <Btn primary type="submit" disabled={busy}>
-                  Xác nhận và lưu
-                </Btn>
-              </div>
-            </form>
-          )}
+                  ) : (
+                    <Field label="Lý do / căn cứ / yêu cầu bổ sung" wide>
+                      <textarea
+                        required={
+                          !(modal === "period" && form.action === "close")
+                        }
+                        value={form.reason || ""}
+                        onChange={(e) => change("reason", e.target.value)}
+                      />
+                    </Field>
+                  )}
+                </div>
+                <div className="form-footer">
+                  <Btn onClick={() => setModal("")}>Hủy</Btn>
+                  <Btn primary type="submit" disabled={busy}>
+                    Xác nhận và lưu
+                  </Btn>
+                </div>
+              </form>
+            )}
           {modal === "preview" && (
             <div>
               <div className="report-preview">
@@ -2614,17 +2617,17 @@ export function AppModals() {
                     ? "Năm " + month.slice(0, 4)
                     : range === "quarter"
                       ? "Quý " +
-                        Math.ceil(Number(month.slice(5)) / 3) +
-                        "/" +
-                        month.slice(0, 4)
+                      Math.ceil(Number(month.slice(5)) / 3) +
+                      "/" +
+                      month.slice(0, 4)
                       : range === "week"
                         ? "Tuần hiện tại"
                         : range === "custom"
                           ? fmt(fromDate) + " – " + fmt(toDate)
                           : "Tháng " +
-                            Number(month.slice(5)) +
-                            "/" +
-                            month.slice(0, 4)}
+                          Number(month.slice(5)) +
+                          "/" +
+                          month.slice(0, 4)}
                 </p>
                 <div className="table-wrap">
                   <table>
