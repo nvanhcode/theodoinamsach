@@ -1,7 +1,14 @@
 "use client";
 
 import React from "react";
-import { Eye, Pencil, History, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  Eye,
+  Pencil,
+  History,
+  ChevronLeft,
+  ChevronRight,
+  CheckCircle2,
+} from "lucide-react";
 import {
   Table,
   TableHeader,
@@ -42,6 +49,21 @@ export function TableTasks({ rows, full = false }: any) {
 
   const taskActions = (t: any) => (
     <div className="actions">
+      {t.status === "review" && (
+        <button
+          className="icon-button"
+          style={{ color: "#b45309", fontWeight: 600 }}
+          aria-label="Xác nhận kết quả"
+          title="Xem danh sách báo cáo cần xác nhận"
+          onClick={() => {
+            setSelected(t);
+            setDetailTab("reports");
+          }}
+        >
+          <CheckCircle2 />
+          <span>Xác nhận</span>
+        </button>
+      )}
       <button
         className="icon-button"
         aria-label="Xem nhiệm vụ"
@@ -54,16 +76,15 @@ export function TableTasks({ rows, full = false }: any) {
       </button>
       {page !== "dashboard" &&
         office(user) &&
-        !["done", "cancelled"].includes(t.status) && (
-          <button
-            className="icon-button"
-            aria-label="Sửa nhiệm vụ"
-            onClick={() => open("task", { ...t })}
-          >
-            <Pencil />
-            <span>Sửa</span>
-          </button>
-        )}
+        <button
+          className="icon-button"
+          aria-label="Sửa nhiệm vụ"
+          onClick={() => open("task", { ...t })}
+        >
+          <Pencil />
+          <span>Sửa</span>
+        </button>
+      }
       <button
         className="icon-button"
         aria-label="Lịch sử nhiệm vụ"
@@ -156,7 +177,21 @@ export function TableTasks({ rows, full = false }: any) {
                   />
                 </TableCell>
                 <TableCell>
-                  <Badge status={t.status} />
+                  {t.status === "review" ? (
+                    <button
+                      type="button"
+                      className="text-left cursor-pointer transition-transform hover:scale-105"
+                      title="Bấm để xem danh sách báo cáo cần xác nhận"
+                      onClick={() => {
+                        setSelected(t);
+                        setDetailTab("reports");
+                      }}
+                    >
+                      <Badge status={t.status} />
+                    </button>
+                  ) : (
+                    <Badge status={t.status} />
+                  )}
                 </TableCell>
                 <TableCell>{taskActions(t)}</TableCell>
               </TableRow>

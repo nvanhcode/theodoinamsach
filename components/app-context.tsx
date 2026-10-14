@@ -515,6 +515,25 @@ export function AppProvider({
   const other = base.filter((t) =>
     ["paused", "cancelled"].includes(t.status),
   ).length;
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      draft: 0,
+      pending: 0,
+      assigned: 0,
+      working: 0,
+      review: 0,
+      returned: 0,
+      done: 0,
+      paused: 0,
+      cancelled: 0,
+    };
+    for (const t of base) {
+      if (counts[t.status] !== undefined) {
+        counts[t.status]++;
+      }
+    }
+    return counts;
+  }, [base]);
   const total = base.length;
   const pageSize = cfg.pageSize || 10;
   const paginated = filtered.slice(
@@ -791,6 +810,7 @@ export function AppProvider({
     reminderItems,
     notStarted,
     other,
+    statusCounts,
     total,
     pageSize,
     paginated,

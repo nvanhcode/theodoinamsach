@@ -481,13 +481,60 @@ export function AppModals() {
                         </Btn>
                       )}
                   </div>
+                  {selectedTask.status === "review" && (
+                    <div className="p-3.5 mb-5 rounded-xl bg-amber-50/80 border border-amber-200/90 text-amber-950 text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                      <div className="flex items-center gap-2.5">
+                        <CheckCircle2 size={18} className="text-amber-600 shrink-0" />
+                        <div>
+                          <div className="font-semibold text-amber-900">
+                            Nhiệm vụ đang chờ xác nhận kết quả
+                          </div>
+                          <div className="text-xs text-amber-800/90 mt-0.5">
+                            {data.reports.filter((r: any) => r.taskId === selectedTask.id && r.state === "submitted").length > 0
+                              ? `Có ${data.reports.filter((r: any) => r.taskId === selectedTask.id && r.state === "submitted").length} báo cáo tiến độ mới cần thẩm định và xác nhận bên dưới.`
+                              : "Các báo cáo của đơn vị đã được xử lý. Bạn có thể xác nhận hoàn thành nhiệm vụ."}
+                          </div>
+                        </div>
+                      </div>
+                      {approver(user) && (
+                        <Btn
+                          primary
+                          small
+                          disabled={busy}
+                          className="shrink-0 whitespace-nowrap"
+                          onClick={() =>
+                            run(
+                              () =>
+                                api("task-action", {
+                                  ...selectedTask,
+                                  action: "complete",
+                                }),
+                              "Đã xác nhận hoàn thành nhiệm vụ.",
+                              false,
+                            )
+                          }
+                        >
+                          <CheckCircle2 size={15} />
+                          Xác nhận hoàn thành nhiệm vụ
+                        </Btn>
+                      )}
+                    </div>
+                  )}
                   {data.reports
                     .filter((r: any) => r.taskId === selectedTask.id)
                     .sort((a: any, b: any) =>
                       b.updated.localeCompare(a.updated),
                     )
                     .map((r: any) => (
-                      <article className="report-card" key={r.id}>
+                      <article
+                        className={
+                          "report-card transition-all" +
+                          (r.state === "submitted"
+                            ? " border-amber-300 bg-amber-50/20 ring-1 ring-amber-200/60"
+                            : "")
+                        }
+                        key={r.id}
+                      >
                         <div className="flex justify-between gap-3">
                           <div>
                             <b className="text-sm">{unitName(r.unit)}</b>

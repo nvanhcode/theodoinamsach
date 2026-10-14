@@ -3,8 +3,15 @@
 import React from "react";
 import {
   ClipboardList,
-  CheckCircle2,
+  FileEdit,
   Clock,
+  UserCheck,
+  PlayCircle,
+  FileCheck2,
+  RotateCcw,
+  CheckCircle2,
+  PauseCircle,
+  XCircle,
   TriangleAlert,
   FileText,
   ChevronRight,
@@ -21,6 +28,7 @@ export function DashboardView() {
     group,
     unit,
     total,
+    statusCounts,
     done,
     working,
     overdue,
@@ -33,59 +41,124 @@ export function DashboardView() {
     navigate,
   } = useApp();
 
+  const kpis: [number, string, React.ComponentType<any>, string, string, string][] = [
+    [
+      total,
+      "Tổng nhiệm vụ",
+      ClipboardList,
+      "#3b82f6",
+      "",
+      "Toàn bộ nhiệm vụ trong kỳ",
+    ],
+    [
+      statusCounts?.draft ?? 0,
+      "Dự thảo",
+      FileEdit,
+      "#64748b",
+      "draft",
+      "Đang soạn thảo, chưa trình",
+    ],
+    [
+      statusCounts?.pending ?? 0,
+      "Chờ duyệt giao việc",
+      Clock,
+      "#0284c7",
+      "pending",
+      "Đã trình, chờ duyệt giao việc",
+    ],
+    [
+      statusCounts?.assigned ?? 0,
+      "Đã giao",
+      UserCheck,
+      "#0d9488",
+      "assigned",
+      "Đã giao việc cho đơn vị",
+    ],
+    [
+      statusCounts?.working ?? 0,
+      "Đang thực hiện",
+      PlayCircle,
+      "#d97706",
+      "working",
+      "Đơn vị đang triển khai thực hiện",
+    ],
+    [
+      statusCounts?.review ?? 0,
+      "Chờ xác nhận kết quả",
+      FileCheck2,
+      "#7c3aed",
+      "review",
+      "Đã gửi báo cáo, chờ xác nhận",
+    ],
+    [
+      statusCounts?.returned ?? 0,
+      "Cần bổ sung",
+      RotateCcw,
+      "#ea580c",
+      "returned",
+      "Báo cáo chưa đạt, cần bổ sung",
+    ],
+    [
+      statusCounts?.done ?? 0,
+      "Hoàn thành đã xác nhận",
+      CheckCircle2,
+      "#16a34a",
+      "done",
+      "Đã được xác nhận hoàn thành",
+    ],
+    [
+      statusCounts?.paused ?? 0,
+      "Tạm dừng",
+      PauseCircle,
+      "#94a3b8",
+      "paused",
+      "Tạm dừng thực hiện theo chỉ đạo",
+    ],
+    [
+      statusCounts?.cancelled ?? 0,
+      "Kết thúc / Hủy",
+      XCircle,
+      "#dc2626",
+      "cancelled",
+      "Đã hủy hoặc kết thúc nhiệm vụ",
+    ],
+  ];
+
   return (
     <>
+      {(overdue > 0 || late > 0) && (
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          {overdue > 0 && (
+            <button
+              onClick={() => navigate("progress", { status: "overdue" })}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold hover:bg-rose-100 transition-colors shadow-sm"
+              title="Xem danh sách nhiệm vụ quá hạn"
+            >
+              <TriangleAlert size={14} className="text-rose-600 shrink-0" />
+              <span>
+                <strong>{overdue}</strong> nhiệm vụ quá hạn
+              </span>
+              <ChevronRight size={13} className="opacity-60" />
+            </button>
+          )}
+          {late > 0 && (
+            <button
+              onClick={() => navigate("progress", { status: "lateReport" })}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-50 border border-purple-200 text-purple-700 text-xs font-semibold hover:bg-purple-100 transition-colors shadow-sm"
+              title="Xem danh sách nhiệm vụ chậm báo cáo"
+            >
+              <FileText size={14} className="text-purple-600 shrink-0" />
+              <span>
+                <strong>{late}</strong> nhiệm vụ chậm báo cáo
+              </span>
+              <ChevronRight size={13} className="opacity-60" />
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="kpi-grid">
-        {[
-          [
-            total,
-            "Tổng nhiệm vụ",
-            ClipboardList,
-            "#5777a8",
-            "",
-            "Theo kỳ giao trong tháng",
-          ],
-          [
-            done,
-            "Đã hoàn thành",
-            CheckCircle2,
-            "#3a9972",
-            "done",
-            "Đã được xác nhận kết quả",
-          ],
-          [
-            working,
-            "Đang thực hiện",
-            Clock,
-            "#e9a11f",
-            "activeWork",
-            "Đã giao, còn trong hạn",
-          ],
-          [
-            overdue,
-            "Quá hạn nhiệm vụ",
-            TriangleAlert,
-            "#c74b5c",
-            "overdue",
-            "Theo hạn hoàn thành",
-          ],
-          [
-            notStarted,
-            "Chưa triển khai",
-            ClipboardList,
-            "#788a9d",
-            "notStarted",
-            "Dự thảo hoặc chờ giao",
-          ],
-          [
-            late,
-            "Chậm báo cáo",
-            FileText,
-            "#9872b2",
-            "lateReport",
-            "Theo kỳ báo cáo tuần",
-          ],
-        ].map(([n, title, Icon, color, filter, note]: any) => (
+        {kpis.map(([n, title, Icon, color, filter, note]) => (
           <button
             key={title}
             className="kpi"
