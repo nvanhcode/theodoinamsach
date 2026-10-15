@@ -2,37 +2,29 @@ services:
   app:
     build: .
     restart: unless-stopped
-    expose:
-      - "3080"
-    # Keep a loopback port for an existing host Nginx/Apache proxy.
-    # Public HTTPS traffic should go through Caddy below.
     ports:
-      - "127.0.0.1:${HOST_PORT:-8208}:3080"
+      # Map cổng máy thật (mặc định 8208) vào cổng 3080 của ứng dụng trong container
+      - "${HOST_PORT:-8208}:3080"
     environment:
-      NODE_ENV: production
-      PORT: 3080
-      DATA_DIR: /data
-      SETUP_TOKEN: ${SETUP_TOKEN:?Set a random setup token in .env}
-      APP_ORIGIN: ${APP_ORIGIN:-https://${DOMAIN:?Set DOMAIN in .env}}
+      SETUP_TOKEN: ${SETUP_TOKEN:?Set a random setup token}
+      APP_ORIGIN: ${APP_ORIGIN:-https://${DOMAIN:?Set your domain}}
     volumes:
+      # Mount thư mục data/ chứa SQLite database (nam-sach.sqlite) và tệp upload ra ngoài máy chủ
       - ./data:/data
 
-  https:
-    image: caddy:2
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    environment:
-      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - app
+  # Service Caddy (tùy chọn cấp SSL tự động cổng 80/443).
+  # Nếu máy chủ đã có Nginx/Web Server hoặc bạn truy cập trực tiếp qua cổng 8208,
+  # Caddy không cần thiết và được tắt bên dưới để tránh xung đột cổng 80/443.
+  # https:
+  #   image: caddy:2
+  #   restart: unless-stopped
+  #   ports: ["80:80", "443:443"]
+  #   environment:
+  #     DOMAIN: ${DOMAIN}
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - caddy_data:/data
+  #   depends_on: [app]
 
-volumes:
-  caddy_data:
-  caddy_config:
+# volumes:
+#   caddy_data:
