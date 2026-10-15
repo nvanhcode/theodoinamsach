@@ -10,6 +10,14 @@ await build({
     rollupOptions: { output: { entryFileNames: "import.mjs" } },
   },
 });
+await build({
+  configFile: false,
+  build: {
+    ssr: "lib/exports.ts",
+    outDir: ".sites-runtime/export-test",
+    rollupOptions: { output: { entryFileNames: "exports.mjs" } },
+  },
+});
 const { parseTaskExcel, taskImportHeaders } = await import(
   pathToFileURL(process.cwd() + "/.sites-runtime/import-test/import.mjs")
 );
@@ -59,9 +67,16 @@ let rows = await parseTaskExcel(bytes([valid]), data, "2026-10");
 assert.deepEqual(rows[0].errors, []);
 assert.equal(rows[0].payload.unit, "a");
 assert.deepEqual(rows[0].payload.partners, ["b"]);
+assert.equal(rows[0].payload.partnerUpdateRequired, true);
 assert.equal(rows[0].payload.assignedDate, "2026-10-02");
 assert.equal(rows[0].payload.reportHour, "15:30");
 assert.equal(rows[0].mode, "create");
+const noPartnerUpdate = [...valid, "Không"];
+rows = await parseTaskExcel(bytes([noPartnerUpdate]), data, "2026-10");
+assert.equal(rows[0].payload.partnerUpdateRequired, false);
+const invalidPartnerUpdate = [...valid, "Có thể"];
+rows = await parseTaskExcel(bytes([invalidPartnerUpdate]), data, "2026-10");
+assert.ok(rows[0].errors.some((e) => e.includes("Có hoặc Không")));
 rows = await parseTaskExcel(bytes([valid, valid]), data, "2026-10");
 assert.ok(rows[1].errors.some((e) => e.includes("lặp")));
 const wrong = [...valid];
@@ -112,7 +127,15 @@ URL.createObjectURL = (b) => {
   blob = b;
   return orig(b);
 };
-globalThis.document = { createElement: () => ({ click() {} }) };
+globalThis.document = {
+  body: { appendChild() {} },
+  createElement: () => ({ click() {}, remove() {} }),
+};
+const originalSetTimeout = globalThis.setTimeout;
+globalThis.setTimeout = (callback) => {
+  callback();
+  return 0;
+};
 await exportAssignmentExcel(
   { ...data, tasks: [old], files: [], reports: [] },
   "2026-10",
@@ -130,6 +153,8 @@ assert.equal(roundtrip[0].payload.due, "2026-10-31");
 assert.equal(roundtrip[0].payload.assignedDate, "2026-10-02");
 assert.equal(roundtrip[0].payload.assignedTime, "14:20");
 assert.equal(roundtrip[0].payload.progress, 60);
+assert.equal(roundtrip[0].payload.partnerUpdateRequired, true);
+globalThis.setTimeout = originalSetTimeout;
 console.log(
   "PASS exported assignment workbook imports as update with dates, times and scope preserved",
 );

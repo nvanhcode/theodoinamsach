@@ -366,6 +366,7 @@ export async function exportAssignmentExcel(
     "Giờ báo cáo",
     "Ngày báo cáo tuần",
     "Lý do điều chỉnh",
+    "Yêu cầu thông tin phối hợp",
   ];
   const deadlines: any = {
     overdue: "Quá hạn",
@@ -430,6 +431,7 @@ export async function exportAssignmentExcel(
       t.reportHour || cfg.hour,
       t.reportDay || cfg.day,
       "",
+      (t.partnerUpdateRequired ?? !!t.partners?.length) ? "Có" : "Không",
     ];
   });
   const stamp = new Date().toLocaleString("vi-VN", {
@@ -476,7 +478,12 @@ export async function exportAssignmentExcel(
   }
   const book = X.utils.book_new();
   X.utils.book_append_sheet(book, ws, "Giao nhiem vu");
-  const unitIds = Array.from(new Set(ts.map((t: any) => t.unit))) as string[];
+  const unitIds = Array.from(
+    new Set([
+      ...ts.map((t: any) => t.unit),
+      ...ts.flatMap((t: any) => t.partners || []),
+    ]),
+  ) as string[];
   const summary = X.utils.aoa_to_sheet([
     [cfg.organization],
     [
@@ -488,28 +495,38 @@ export async function exportAssignmentExcel(
     [],
     [
       "TT",
-      "Đơn vị chủ trì",
-      "Tổng nhiệm vụ",
-      "Đã hoàn thành",
+      "Đơn vị",
+      "Chủ trì",
+      "Phối hợp",
+      "Tổng phân công",
+      "Chủ trì hoàn thành",
       "Quá hạn nhiệm vụ",
-      "Chậm báo cáo",
+      "Chủ trì chậm báo cáo",
       "Tiến độ bình quân",
     ],
     ...unitIds.map((id: string, i: number) => {
-      const tt = ts.filter((t: any) => t.unit === id);
+      const leadTasks = ts.filter((t: any) => t.unit === id);
+      const partnerCount = ts.filter((t: any) =>
+        (t.partners || []).includes(id),
+      ).length;
       return [
         i + 1,
         un(id),
-        tt.length,
-        tt.filter((t: any) => t.status === "done").length,
-        tt.filter((t: any) => deadlineState(t) === "overdue").length,
-        tt.filter((t: any) =>
+        leadTasks.length,
+        partnerCount,
+        leadTasks.length + partnerCount,
+        leadTasks.filter((t: any) => t.status === "done").length,
+        leadTasks.filter((t: any) => deadlineState(t) === "overdue").length,
+        leadTasks.filter((t: any) =>
           ["missing", "late"].includes(
             reportState(t, data.reports, new Date(), cfg),
           ),
         ).length,
-        tt.reduce((n: number, t: any) => n + (Number(t.progress) || 0), 0) /
-          tt.length /
+        leadTasks.reduce(
+          (n: number, t: any) => n + (Number(t.progress) || 0),
+          0,
+        ) /
+          Math.max(1, leadTasks.length) /
           100,
       ];
     }),
@@ -517,11 +534,11 @@ export async function exportAssignmentExcel(
   summary["!cols"] = [
     { wch: 5 },
     { wch: 45 },
-    ...Array.from({ length: 5 }, () => ({ wch: 22 })),
+    ...Array.from({ length: 7 }, () => ({ wch: 22 })),
   ];
-  summary["!autofilter"] = { ref: "A4:G" + (unitIds.length + 4) };
+  summary["!autofilter"] = { ref: "A4:I" + (unitIds.length + 4) };
   for (let r = 4; r < unitIds.length + 4; r++)
-    summary[X.utils.encode_cell({ r, c: 6 })].z = "0%";
+    summary[X.utils.encode_cell({ r, c: 8 })].z = "0%";
   X.utils.book_append_sheet(book, summary, "Tong hop don vi");
   save(
     await legacyExcel(book, [4, 3]),

@@ -82,6 +82,10 @@ import {
   reportRows,
   exportAssignmentExcel,
 } from "@/lib/exports";
+import {
+  isPercentageProgressTask,
+  normalizePercentageReport,
+} from "@/lib/progress-mode";
 
 export function AppModals() {
   const {
@@ -140,6 +144,45 @@ export function AppModals() {
     saveTaskImport,
     upload,
   } = useApp();
+  const reportTask =
+    data.tasks.find((item: any) => item.id === form.taskId) || selectedTask;
+  const percentageOnlyReport = isPercentageProgressTask(reportTask);
+  const selectedSubmittedReports = selectedTask
+    ? data.reports.filter(
+        (report: any) =>
+          report.taskId === selectedTask.id && report.state === "submitted",
+      )
+    : [];
+  const canConfirmTaskComplete =
+    !!selectedTask &&
+    selectedTask.progress >= 100 &&
+    selectedSubmittedReports.length === 0;
+
+  async function saveDocument() {
+    const attachments: File[] = form.attachments || [];
+    if (!form.id && attachments.length === 0) {
+      throw new Error("Chọn ít nhất một tệp PDF, Word hoặc Excel.");
+    }
+
+    const { attachments: _attachments, ...documentData } = form;
+    const saved = await api("document", {
+      ...documentData,
+      title: documentData.title || documentData.number,
+      issued: documentData.issued || "",
+    });
+    setForm((current: any) => ({ ...current, ...saved }));
+
+    for (const file of attachments) {
+      await upload(saved.id, file);
+      setForm((current: any) => ({
+        ...current,
+        attachments: (current.attachments || []).filter(
+          (pending: File) => pending !== file,
+        ),
+      }));
+    }
+    return saved;
+  }
 
   return (
     <>
@@ -153,8 +196,8 @@ export function AppModals() {
               CHI TIẾT NHIỆM VỤ · THÁNG{" "}
               {selectedTask
                 ? Number(selectedTask.month.slice(5)) +
-                "/" +
-                selectedTask.month.slice(0, 4)
+                  "/" +
+                  selectedTask.month.slice(0, 4)
                 : ""}
             </div>
             <SheetTitle className="text-xl leading-relaxed pr-5">
@@ -215,9 +258,9 @@ export function AppModals() {
                       [
                         "Thời gian giao nhiệm vụ",
                         fmt(selectedTask.assignedDate) +
-                        (selectedTask.assignedTime
-                          ? " · " + selectedTask.assignedTime
-                          : ""),
+                          (selectedTask.assignedTime
+                            ? " · " + selectedTask.assignedTime
+                            : ""),
                       ],
                       ["Thời hạn gốc", fmt(selectedTask.originalDue)],
                       ["Thời hạn hiện hành", fmt(selectedTask.due)],
@@ -234,12 +277,12 @@ export function AppModals() {
                       [
                         "Tình trạng báo cáo định kỳ",
                         reportLabels[
-                        reportState(
-                          selectedTask,
-                          data.reports,
-                          new Date(),
-                          cfg,
-                        )
+                          reportState(
+                            selectedTask,
+                            data.reports,
+                            new Date(),
+                            cfg,
+                          )
                         ],
                       ],
                     ].map(([label, value]) => (
@@ -308,24 +351,33 @@ export function AppModals() {
                       </Btn>
                     )}
                     {approver(user) && selectedTask.status === "review" && (
-                      <Btn
-                        primary
-                        disabled={busy}
-                        onClick={() =>
-                          run(
-                            () =>
-                              api("task-action", {
-                                ...selectedTask,
-                                action: "complete",
-                              }),
-                            "Đã xác nhận hoàn thành.",
-                            false,
-                          )
-                        }
-                      >
-                        <CheckCircle2 />
-                        Xác nhận hoàn thành
-                      </Btn>
+                      <div>
+                        <Btn
+                          primary
+                          disabled={busy || !canConfirmTaskComplete}
+                          onClick={() =>
+                            run(
+                              () =>
+                                api("task-action", {
+                                  ...selectedTask,
+                                  action: "complete",
+                                }),
+                              "Đã xác nhận hoàn thành.",
+                              false,
+                            )
+                          }
+                        >
+                          <CheckCircle2 />
+                          Xác nhận hoàn thành
+                        </Btn>
+                        {!canConfirmTaskComplete && (
+                          <p className="muted text-xs mt-2">
+                            {selectedSubmittedReports.length
+                              ? "Cần thẩm định hết báo cáo mới trước khi xác nhận."
+                              : "Tiến độ đã xác nhận phải đạt từ 100%."}
+                          </p>
+                        )}
+                      </div>
                     )}
                     {approver(user) &&
                       !["draft", "pending", "done", "cancelled"].includes(
@@ -446,11 +498,11 @@ export function AppModals() {
                   {!(data.milestones || []).some(
                     (m: any) => m.taskId === selectedTask.id,
                   ) && (
-                      <None
-                        title="Chưa có đầu việc con"
-                        text="Phân rã nhiệm vụ thành các mốc, người phụ trách và kết quả riêng."
-                      />
-                    )}
+                    <None
+                      title="Chưa có đầu việc con"
+                      text="Phân rã nhiệm vụ thành các mốc, người phụ trách và kết quả riêng."
+                    />
+                  )}
                 </TabsContent>
                 <TabsContent value="reports">
                   <div className="flex justify-between items-center mb-5">
@@ -460,7 +512,6 @@ export function AppModals() {
                       ["assigned", "working", "review", "returned"].includes(
                         selectedTask.status,
                       ) && (
-
                         <Btn
                           primary
                           small
@@ -484,15 +535,18 @@ export function AppModals() {
                   {selectedTask.status === "review" && (
                     <div className="p-3.5 mb-5 rounded-xl bg-amber-50/80 border border-amber-200/90 text-amber-950 text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
                       <div className="flex items-center gap-2.5">
-                        <CheckCircle2 size={18} className="text-amber-600 shrink-0" />
+                        <CheckCircle2
+                          size={18}
+                          className="text-amber-600 shrink-0"
+                        />
                         <div>
                           <div className="font-semibold text-amber-900">
                             Nhiệm vụ đang chờ xác nhận kết quả
                           </div>
                           <div className="text-xs text-amber-800/90 mt-0.5">
-                            {data.reports.filter((r: any) => r.taskId === selectedTask.id && r.state === "submitted").length > 0
-                              ? `Có ${data.reports.filter((r: any) => r.taskId === selectedTask.id && r.state === "submitted").length} báo cáo tiến độ mới cần thẩm định và xác nhận bên dưới.`
-                              : "Các báo cáo của đơn vị đã được xử lý. Bạn có thể xác nhận hoàn thành nhiệm vụ."}
+                            {selectedSubmittedReports.length > 0
+                              ? `Có ${selectedSubmittedReports.length} báo cáo tiến độ mới cần thẩm định và xác nhận bên dưới.`
+                              : "Các báo cáo đã được xử lý. Khi báo cáo được xác nhận đạt từ 100%, hệ thống tự ghi nhận hoàn thành và cập nhật tổng quan."}
                           </div>
                         </div>
                       </div>
@@ -500,7 +554,7 @@ export function AppModals() {
                         <Btn
                           primary
                           small
-                          disabled={busy}
+                          disabled={busy || !canConfirmTaskComplete}
                           className="shrink-0 whitespace-nowrap"
                           onClick={() =>
                             run(
@@ -571,16 +625,26 @@ export function AppModals() {
                             <a
                               className="block text-sm underline mb-2"
                               key={f.id}
-                              href={"/api/file?id=" + f.id}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                              href={"/api/file?id=" + encodeURIComponent(f.id)}
+                              download={f.name}
+                              title="Tải tài liệu do đơn vị gửi"
                             >
-                              Minh chứng: {f.name}
+                              Tải minh chứng: {f.name}
                             </a>
                           ))}
                         <div className="text-sm mb-2">
-                          Tiến độ <b>{r.progress}%</b> · Khối lượng{" "}
-                          <b>{r.quantity || 0}</b>
+                          Tiến độ{" "}
+                          <b>
+                            {normalizePercentageReport(selectedTask, r)
+                              ?.progress ?? r.progress}
+                            %
+                          </b>
+                          {!isPercentageProgressTask(selectedTask) && (
+                            <>
+                              {" "}
+                              · Khối lượng <b>{r.quantity || 0}</b>
+                            </>
+                          )}
                         </div>
                         {r.difficulty && (
                           <p>
@@ -607,7 +671,12 @@ export function AppModals() {
                             ["draft", "returned"].includes(r.state) && (
                               <Btn
                                 small
-                                onClick={() => open("report", { ...r })}
+                                onClick={() =>
+                                  open(
+                                    "report",
+                                    normalizePercentageReport(selectedTask, r),
+                                  )
+                                }
                               >
                                 <Pencil />
                                 Sửa và gửi
@@ -622,19 +691,27 @@ export function AppModals() {
                                   small
                                   primary
                                   disabled={busy}
-                                  onClick={() =>
+                                  onClick={() => {
+                                    const normalized =
+                                      normalizePercentageReport(
+                                        selectedTask,
+                                        r,
+                                      );
                                     open("confirmReport", {
-                                      ...r,
+                                      ...normalized,
                                       action: "confirm",
-                                      originalProgress: r.progress,
-                                      progress: r.progress,
-                                      quantity: r.quantity ?? 0,
+                                      originalProgress:
+                                        normalized?.progress ?? r.progress,
+                                      progress:
+                                        normalized?.progress ?? r.progress,
+                                      quantity:
+                                        normalized?.quantity ?? r.quantity ?? 0,
                                       result: r.result || "",
                                       difficulty: r.difficulty || "",
                                       proposal: r.proposal || "",
                                       reviewNote: "",
-                                    })
-                                  }
+                                    });
+                                  }}
                                 >
                                   Xác nhận
                                 </Btn>
@@ -656,15 +733,21 @@ export function AppModals() {
                             canReport(user, selectedTask) && (
                               <Btn
                                 small
-                                onClick={() =>
+                                onClick={() => {
+                                  const normalized = normalizePercentageReport(
+                                    selectedTask,
+                                    r,
+                                  );
                                   open("report", {
                                     taskId: selectedTask.id,
                                     previousId: r.id,
-                                    progress: r.progress,
+                                    progress:
+                                      normalized?.progress ?? r.progress,
                                     result: "",
-                                    quantity: r.quantity,
-                                  })
-                                }
+                                    quantity:
+                                      normalized?.quantity ?? r.quantity,
+                                  });
+                                }}
                               >
                                 Lập bản bổ sung
                               </Btn>
@@ -675,11 +758,11 @@ export function AppModals() {
                   {!data.reports.some(
                     (r: any) => r.taskId === selectedTask.id,
                   ) && (
-                      <None
-                        title="Chưa có báo cáo tiến độ"
-                        text="Lưu nháp để tiếp tục nhập, hoặc gửi báo cáo đến người xác nhận."
-                      />
-                    )}
+                    <None
+                      title="Chưa có báo cáo tiến độ"
+                      text="Lưu nháp để tiếp tục nhập, hoặc gửi báo cáo đến người xác nhận."
+                    />
+                  )}
                 </TabsContent>
                 <TabsContent value="files">
                   <h2 className="mb-4">Hồ sơ minh chứng</h2>
@@ -742,7 +825,8 @@ export function AppModals() {
                                 </b>
                                 {isFromReport ? (
                                   <span className="inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                                    Từ báo cáo {rep ? `· ${unitName(rep.unit)}` : ""}
+                                    Từ báo cáo{" "}
+                                    {rep ? `· ${unitName(rep.unit)}` : ""}
                                   </span>
                                 ) : (
                                   <span className="inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
@@ -789,21 +873,42 @@ export function AppModals() {
                       (Array.isArray(selectedTask.evidenceIds) &&
                         selectedTask.evidenceIds.includes(f.id)),
                   ) && (
-                      <None
-                        title="Chưa có minh chứng"
-                        text="Tệp được lưu theo nhiệm vụ hoặc tự động tích hợp từ báo cáo tiến độ khi được xác nhận."
-                      />
-                    )}
+                    <None
+                      title="Chưa có minh chứng"
+                      text="Tệp được lưu theo nhiệm vụ hoặc tự động tích hợp từ báo cáo tiến độ khi được xác nhận."
+                    />
+                  )}
                 </TabsContent>
                 <TabsContent value="comments">
                   <h2 className="mb-4">Phối hợp và ý kiến chỉ đạo</h2>
                   {comments.map((c: any) => (
                     <div className="report-card" key={c.id}>
-                      <b className="text-sm">{c.author}</b>
+                      <b className="text-sm">
+                        {c.unitName ? c.unitName + " · " : ""}
+                        {c.author}
+                      </b>
+                      {c.type === "coordination" && (
+                        <span className="notice-priority-tag notice-priority-coordination ml-2">
+                          Thông tin phối hợp
+                        </span>
+                      )}
                       <small className="muted ml-3">
                         {fulltime(c.updated)}
                       </small>
                       <p>{c.text}</p>
+                      {!!c.files?.length && (
+                        <div className="unit-coordination-files">
+                          {c.files.map((file: any) => (
+                            <a
+                              key={file.id}
+                              href={`/api/file?id=${encodeURIComponent(file.id)}`}
+                              download={file.name}
+                            >
+                              Tải tệp: {file.name}
+                            </a>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                   <Btn
@@ -870,7 +975,8 @@ export function AppModals() {
                           return `${v}%`;
                         }
                         if (k === "unit" || k === "partners") {
-                          if (Array.isArray(v)) return v.map(unitName).join(", ");
+                          if (Array.isArray(v))
+                            return v.map(unitName).join(", ");
                           return unitName(v);
                         }
                         if (typeof v === "object") return JSON.stringify(v);
@@ -905,8 +1011,10 @@ export function AppModals() {
                                   .filter(
                                     (k) =>
                                       !ignoredKeys.includes(k) &&
-                                      JSON.stringify(JSON.parse(h.before)[k]) !==
-                                      JSON.stringify(JSON.parse(h.after)[k]),
+                                      JSON.stringify(
+                                        JSON.parse(h.before)[k],
+                                      ) !==
+                                        JSON.stringify(JSON.parse(h.after)[k]),
                                   )
                                   .map((k) => (
                                     <div key={k} className="py-1">
@@ -1123,10 +1231,12 @@ export function AppModals() {
                 <>
                   <p className="text-sm mb-3">
                     {importRows.length} dòng ·{" "}
-                    {importRows.filter((r: any) => r.mode === "create").length} thêm
-                    mới · {importRows.filter((r: any) => r.mode === "update").length}{" "}
+                    {importRows.filter((r: any) => r.mode === "create").length}{" "}
+                    thêm mới ·{" "}
+                    {importRows.filter((r: any) => r.mode === "update").length}{" "}
                     cập nhật ·{" "}
-                    {importRows.filter((r: any) => r.errors.length).length} dòng lỗi
+                    {importRows.filter((r: any) => r.errors.length).length} dòng
+                    lỗi
                   </p>
                   <div className="table-wrap" style={{ maxHeight: "45vh" }}>
                     <table>
@@ -1210,9 +1320,9 @@ export function AppModals() {
                       <Save />
                       {busy && importSaveProgress.total
                         ? "Đang lưu " +
-                        importSaveProgress.finished +
-                        "/" +
-                        importSaveProgress.total
+                          importSaveProgress.finished +
+                          "/" +
+                          importSaveProgress.total
                         : importRows.every((r: any) => r.saved)
                           ? "Đã lưu hệ thống"
                           : "Lưu hệ thống"}
@@ -1294,6 +1404,11 @@ export function AppModals() {
                   />
                 </Field>
                 <Field label="Đơn vị phối hợp" wide>
+                  <p className="muted text-xs mb-2">
+                    Đơn vị chủ trì gửi báo cáo để admin phê duyệt. Đơn vị phối
+                    hợp theo dõi tiến độ và chỉ gửi thông tin cho chủ trì khi
+                    được yêu cầu.
+                  </p>
                   <div className="check-list">
                     {data.units
                       .filter((u: any) => u.active && u.id !== form.unit)
@@ -1302,19 +1417,38 @@ export function AppModals() {
                           key={u.id}
                           label={u.name}
                           checked={form.partners?.includes(u.id)}
-                          onChange={(v: boolean) =>
-                            change(
-                              "partners",
-                              v
-                                ? [...(form.partners || []), u.id]
-                                : (form.partners || []).filter(
+                          onChange={(v: boolean) => {
+                            const next = v
+                              ? [...(form.partners || []), u.id]
+                              : (form.partners || []).filter(
                                   (x: string) => x !== u.id,
-                                ),
-                            )
-                          }
+                                );
+                            change("partners", next);
+                            if (!next.length)
+                              change("partnerUpdateRequired", false);
+                            else if (!form.partners?.length)
+                              change("partnerUpdateRequired", true);
+                          }}
                         />
                       ))}
                   </div>
+                  {!!form.partners?.length && (
+                    <div className="mt-3 rounded-lg border p-3">
+                      <Check
+                        label="Yêu cầu đơn vị phối hợp gửi thông tin cho đơn vị chủ trì"
+                        checked={
+                          form.partnerUpdateRequired ?? !!form.partners?.length
+                        }
+                        onChange={(value: boolean) =>
+                          change("partnerUpdateRequired", value)
+                        }
+                      />
+                      <p className="muted text-xs mt-1">
+                        Thông tin phối hợp được gửi trực tiếp cho chủ trì, không
+                        tạo báo cáo riêng chờ admin duyệt.
+                      </p>
+                    </div>
+                  )}
                 </Field>
                 <Field label="Ngày giao nhiệm vụ *">
                   <input
@@ -1484,8 +1618,8 @@ export function AppModals() {
                               v
                                 ? [...(form.allowedUsers || []), u.id]
                                 : (form.allowedUsers || []).filter(
-                                  (x: string) => x !== u.id,
-                                ),
+                                    (x: string) => x !== u.id,
+                                  ),
                             )
                           }
                         />
@@ -1507,7 +1641,7 @@ export function AppModals() {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                run(() => api("document", form));
+                run(saveDocument, "Đã lưu văn bản và tệp đính kèm.");
               }}
             >
               <fieldset disabled={form.view}>
@@ -1519,50 +1653,44 @@ export function AppModals() {
                       onChange={(e) => change("number", e.target.value)}
                     />
                   </Field>
-                  <Field label="Ngày ban hành *">
+                  <Field label="Tệp văn bản *" wide>
                     <input
-                      required
-                      type="date"
-                      value={form.issued || ""}
-                      onChange={(e) => change("issued", e.target.value)}
+                      type="file"
+                      multiple
+                      accept=".pdf,.doc,.docx,.xls,.xlsx"
+                      disabled={busy || form.view}
+                      onChange={(e) => {
+                        change("attachments", Array.from(e.target.files || []));
+                        e.currentTarget.value = "";
+                      }}
                     />
-                  </Field>
-                  <Field label="Cơ quan ban hành">
-                    <input
-                      value={form.issuer || ""}
-                      onChange={(e) => change("issuer", e.target.value)}
-                    />
-                  </Field>
-                  <Field label="Loại văn bản">
-                    <input
-                      value={form.type || ""}
-                      onChange={(e) => change("type", e.target.value)}
-                    />
-                  </Field>
-                  <Field label="Trích yếu *" wide>
-                    <textarea
-                      required
-                      value={form.title || ""}
-                      onChange={(e) => change("title", e.target.value)}
-                    />
-                  </Field>
-                  <Field label="Nội dung" wide>
-                    <textarea
-                      rows={5}
-                      value={form.content || ""}
-                      onChange={(e) => change("content", e.target.value)}
-                    />
-                  </Field>
-                  <Field label="Kỳ theo dõi">
-                    <input
-                      type="month"
-                      required
-                      value={form.month}
-                      onChange={(e) => change("month", e.target.value)}
-                    />
+                    <span className="hint">
+                      PDF, Word (.doc/.docx), Excel (.xls/.xlsx) · tối đa 25
+                      MB/tệp.
+                    </span>
                   </Field>
                 </div>
               </fieldset>
+              {!!form.attachments?.length && (
+                <div className="report-card mt-3">
+                  <strong>Tệp sẽ tải lên</strong>
+                  {form.attachments.map((file: File, index: number) => (
+                    <div className="text-sm mt-2" key={`${file.name}-${index}`}>
+                      {file.name}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {form.id &&
+                data.files
+                  .filter((file: any) => file.parent_id === form.id)
+                  .map((file: any) => (
+                    <div className="text-sm mt-3" key={file.id}>
+                      <a href={`/api/file?id=${file.id}`} className="underline">
+                        {file.name}
+                      </a>
+                    </div>
+                  ))}
               {!form.view && (
                 <div className="form-footer">
                   <Btn onClick={() => setModal("")}>Hủy</Btn>
@@ -2003,7 +2131,7 @@ export function AppModals() {
                   <input
                     type="number"
                     min="0"
-                    max="100"
+                    step="any"
                     value={form.progress}
                     onChange={(e) => change("progress", e.target.value)}
                   />
@@ -2037,7 +2165,8 @@ export function AppModals() {
               </div>
               <div className="hint mt-4">
                 <Info />
-                Gửi báo cáo để thủ trưởng xác nhận. Trạng thái nhiệm vụ sẽ chuyển thành "Chờ xác nhận kết quả". Có thể tải minh chứng ngay
+                Gửi báo cáo để thủ trưởng xác nhận. Trạng thái nhiệm vụ sẽ
+                chuyển thành "Chờ xác nhận kết quả". Có thể tải minh chứng ngay
                 bên dưới hoặc trong hồ sơ nhiệm vụ.
               </div>
               <div className="hint mt-4">
@@ -2049,11 +2178,11 @@ export function AppModals() {
                 · Hạn kỳ này:{" "}
                 {fulltime(
                   form.deadline ||
-                  reportWindow(
-                    tasks.find((t: any) => t.id === form.taskId) || {},
-                    new Date(),
-                    cfg,
-                  ).deadline,
+                    reportWindow(
+                      tasks.find((t: any) => t.id === form.taskId) || {},
+                      new Date(),
+                      cfg,
+                    ).deadline,
                 )}
               </div>
               <div className="evidence-upload mt-4">
@@ -2148,11 +2277,11 @@ export function AppModals() {
                     Thẩm định & Xác nhận duyệt báo cáo tiến độ
                   </b>
                   <p className="mt-1 text-slate-600 leading-relaxed">
-                    Bạn có thể kiểm tra và <b>trực tiếp hiệu chỉnh</b> tỉ lệ hoàn
-                    thành, khối lượng thực tế, kết quả hoặc ghi chú chỉ đạo trước
-                    khi duyệt. Sau khi xác nhận, tiến độ của nhiệm vụ sẽ được cập
-                    nhật đồng bộ và toàn bộ minh chứng kèm theo sẽ được lưu vào
-                    hồ sơ nhiệm vụ.
+                    Bạn có thể kiểm tra và <b>trực tiếp hiệu chỉnh</b> tỉ lệ
+                    hoàn thành, khối lượng thực tế, kết quả hoặc ghi chú chỉ đạo
+                    trước khi duyệt. Sau khi xác nhận, tiến độ của nhiệm vụ sẽ
+                    được cập nhật đồng bộ và toàn bộ minh chứng kèm theo sẽ được
+                    lưu vào hồ sơ nhiệm vụ.
                   </p>
                 </div>
               </div>
@@ -2170,7 +2299,9 @@ export function AppModals() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-2.5 border-t border-slate-200 text-xs">
                   <div>
-                    <span className="text-slate-500 block">Đơn vị báo cáo:</span>
+                    <span className="text-slate-500 block">
+                      Đơn vị báo cáo:
+                    </span>
                     <b className="text-slate-800 text-sm">
                       {unitName(form.unit)}
                     </b>
@@ -2187,7 +2318,9 @@ export function AppModals() {
                     </b>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Tiến độ nhiệm vụ hiện tại:</span>
+                    <span className="text-slate-500 block">
+                      Tiến độ nhiệm vụ hiện tại:
+                    </span>
                     <b className="text-slate-800 text-sm">
                       {selectedTask?.progress || 0}%
                     </b>
@@ -2223,7 +2356,8 @@ export function AppModals() {
                     </label>
                     <div className="flex items-center gap-3">
                       {form.originalProgress !== undefined &&
-                        Number(form.originalProgress) !== Number(form.progress) && (
+                        Number(form.originalProgress) !==
+                          Number(form.progress) && (
                           <button
                             type="button"
                             onClick={() =>
@@ -2240,16 +2374,10 @@ export function AppModals() {
                         <input
                           type="number"
                           min="0"
-                          max="100"
+                          step="any"
                           className="w-20 text-center font-bold text-base border rounded-md px-2 py-1 text-emerald-800 bg-emerald-50 border-emerald-300 focus:outline-emerald-600"
                           value={form.progress ?? 0}
-                          onChange={(e) => {
-                            const val = Math.min(
-                              100,
-                              Math.max(0, Number(e.target.value) || 0),
-                            );
-                            change("progress", val);
-                          }}
+                          onChange={(e) => change("progress", e.target.value)}
                         />
                         <span className="font-semibold text-slate-600">%</span>
                       </div>
@@ -2260,12 +2388,19 @@ export function AppModals() {
                   <input
                     type="range"
                     min="0"
-                    max="100"
+                    max="200"
                     step="5"
-                    value={form.progress ?? 0}
+                    value={Math.min(
+                      200,
+                      Math.max(0, Number(form.progress) || 0),
+                    )}
                     onChange={(e) => change("progress", Number(e.target.value))}
                     className="w-full accent-emerald-600 cursor-pointer h-2 bg-slate-200 rounded-lg appearance-none"
                   />
+                  <p className="text-xs text-slate-500">
+                    Thanh trượt đến 200%; nhập số phía trên nếu mức vượt cao
+                    hơn.
+                  </p>
 
                   {/* Visual Bar */}
                   <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden border border-slate-200">
@@ -2283,13 +2418,18 @@ export function AppModals() {
                       }}
                     />
                   </div>
+                  {Number(form.progress) > 100 && (
+                    <p className="text-xs font-medium text-emerald-700">
+                      Vượt chỉ tiêu {Number(form.progress) - 100}%.
+                    </p>
+                  )}
 
                   {/* Nút chọn nhanh */}
                   <div className="flex flex-wrap items-center gap-2 pt-1">
                     <span className="text-xs text-slate-500 mr-1">
                       Mức nhanh:
                     </span>
-                    {[25, 50, 75, 100].map((pct) => (
+                    {[25, 50, 75, 100, 125, 150, 200].map((pct) => (
                       <button
                         key={pct}
                         type="button"
@@ -2308,20 +2448,22 @@ export function AppModals() {
                 </div>
 
                 {/* Khối lượng hoàn thành */}
-                <div className="pt-2 border-t border-slate-100">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Khối lượng hoàn thành thực tế:
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    className="w-full sm:w-60 border rounded-lg px-3 py-2 text-sm bg-white"
-                    placeholder="Nhập số khối lượng đạt được..."
-                    value={form.quantity ?? 0}
-                    onChange={(e) => change("quantity", e.target.value)}
-                  />
-                </div>
+                {!percentageOnlyReport && (
+                  <div className="pt-2 border-t border-slate-100">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Khối lượng hoàn thành thực tế:
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      className="w-full sm:w-60 border rounded-lg px-3 py-2 text-sm bg-white"
+                      placeholder="Nhập số khối lượng đạt được..."
+                      value={form.quantity ?? 0}
+                      onChange={(e) => change("quantity", e.target.value)}
+                    />
+                  </div>
+                )}
               </div>
 
               {/* 4. Khối Nội dung kết quả & Biên tập */}
@@ -2534,118 +2676,118 @@ export function AppModals() {
             "comment",
             "password",
           ].includes(modal) && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const endpoint = (
-                    {
-                      action: "task-action",
-                      returnReport: "report-action",
-                      period: "period",
-                      remind: "remind",
-                      comment: "comment",
-                      password: "password",
-                    } as any
-                  )[modal];
-                  run(
-                    () => api(endpoint, form),
-                    "Đã ghi nhận thao tác.",
-                    true,
-                    modal !== "password",
-                  ).then((r: any) => {
-                    if (r && modal === "password") {
-                      setUser(null);
-                      setForm({});
-                    }
-                  });
-                }}
-              >
-                <div className="form-grid">
-                  {modal === "action" && form.action === "carry" && (
-                    <>
-                      <Field label="Kỳ mới">
-                        <input
-                          type="month"
-                          required
-                          value={form.month || ""}
-                          onChange={(e) => change("month", e.target.value)}
-                        />
-                      </Field>
-                      <Field label="Thời hạn kỳ mới">
-                        <input
-                          type="date"
-                          required
-                          value={form.due || ""}
-                          onChange={(e) => change("due", e.target.value)}
-                        />
-                      </Field>
-                    </>
-                  )}
-                  {modal === "period" && (
-                    <div className="hint wide">
-                      {form.action === "reopen"
-                        ? "Mở điều chỉnh không xóa báo cáo đã chốt. Lần khóa tiếp theo tạo một phiên bản mới."
-                        : "Khóa sổ sẽ tạo bản chụp dữ liệu kỳ " +
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const endpoint = (
+                  {
+                    action: "task-action",
+                    returnReport: "report-action",
+                    period: "period",
+                    remind: "remind",
+                    comment: "comment",
+                    password: "password",
+                  } as any
+                )[modal];
+                run(
+                  () => api(endpoint, form),
+                  "Đã ghi nhận thao tác.",
+                  true,
+                  modal !== "password",
+                ).then((r: any) => {
+                  if (r && modal === "password") {
+                    setUser(null);
+                    setForm({});
+                  }
+                });
+              }}
+            >
+              <div className="form-grid">
+                {modal === "action" && form.action === "carry" && (
+                  <>
+                    <Field label="Kỳ mới">
+                      <input
+                        type="month"
+                        required
+                        value={form.month || ""}
+                        onChange={(e) => change("month", e.target.value)}
+                      />
+                    </Field>
+                    <Field label="Thời hạn kỳ mới">
+                      <input
+                        type="date"
+                        required
+                        value={form.due || ""}
+                        onChange={(e) => change("due", e.target.value)}
+                      />
+                    </Field>
+                  </>
+                )}
+                {modal === "period" && (
+                  <div className="hint wide">
+                    {form.action === "reopen"
+                      ? "Mở điều chỉnh không xóa báo cáo đã chốt. Lần khóa tiếp theo tạo một phiên bản mới."
+                      : "Khóa sổ sẽ tạo bản chụp dữ liệu kỳ " +
                         month +
                         ". Các hồ sơ trong kỳ không được sửa cho đến khi mở điều chỉnh."}
-                    </div>
-                  )}
-                  {modal === "password" ? (
-                    <>
-                      <Field label="Mật khẩu hiện tại" wide>
-                        <input
-                          required
-                          type="password"
-                          value={form.old || ""}
-                          onChange={(e) => change("old", e.target.value)}
-                        />
-                      </Field>
-                      <Field label="Mật khẩu mới (tối thiểu 12 ký tự)" wide>
-                        <input
-                          required
-                          type="password"
-                          minLength={12}
-                          value={form.password || ""}
-                          onChange={(e) => change("password", e.target.value)}
-                        />
-                      </Field>
-                    </>
-                  ) : modal === "comment" ? (
-                    <Field label="Nội dung ý kiến" wide>
-                      <textarea
+                  </div>
+                )}
+                {modal === "password" ? (
+                  <>
+                    <Field label="Mật khẩu hiện tại" wide>
+                      <input
                         required
-                        value={form.text || ""}
-                        onChange={(e) => change("text", e.target.value)}
+                        type="password"
+                        value={form.old || ""}
+                        onChange={(e) => change("old", e.target.value)}
                       />
                     </Field>
-                  ) : modal === "remind" ? (
-                    <Field label="Nội dung nhắc việc" wide>
-                      <textarea
+                    <Field label="Mật khẩu mới (tối thiểu 12 ký tự)" wide>
+                      <input
                         required
-                        value={form.message || ""}
-                        onChange={(e) => change("message", e.target.value)}
+                        type="password"
+                        minLength={12}
+                        value={form.password || ""}
+                        onChange={(e) => change("password", e.target.value)}
                       />
                     </Field>
-                  ) : (
-                    <Field label="Lý do / căn cứ / yêu cầu bổ sung" wide>
-                      <textarea
-                        required={
-                          !(modal === "period" && form.action === "close")
-                        }
-                        value={form.reason || ""}
-                        onChange={(e) => change("reason", e.target.value)}
-                      />
-                    </Field>
-                  )}
-                </div>
-                <div className="form-footer">
-                  <Btn onClick={() => setModal("")}>Hủy</Btn>
-                  <Btn primary type="submit" disabled={busy}>
-                    Xác nhận và lưu
-                  </Btn>
-                </div>
-              </form>
-            )}
+                  </>
+                ) : modal === "comment" ? (
+                  <Field label="Nội dung ý kiến" wide>
+                    <textarea
+                      required
+                      value={form.text || ""}
+                      onChange={(e) => change("text", e.target.value)}
+                    />
+                  </Field>
+                ) : modal === "remind" ? (
+                  <Field label="Nội dung yêu cầu / nhắc việc gửi đơn vị" wide>
+                    <textarea
+                      required
+                      value={form.message || ""}
+                      onChange={(e) => change("message", e.target.value)}
+                    />
+                  </Field>
+                ) : (
+                  <Field label="Lý do / căn cứ / yêu cầu bổ sung" wide>
+                    <textarea
+                      required={
+                        !(modal === "period" && form.action === "close")
+                      }
+                      value={form.reason || ""}
+                      onChange={(e) => change("reason", e.target.value)}
+                    />
+                  </Field>
+                )}
+              </div>
+              <div className="form-footer">
+                <Btn onClick={() => setModal("")}>Hủy</Btn>
+                <Btn primary type="submit" disabled={busy}>
+                  Xác nhận và lưu
+                </Btn>
+              </div>
+            </form>
+          )}
           {modal === "preview" && (
             <div>
               <div className="report-preview">
@@ -2664,17 +2806,17 @@ export function AppModals() {
                     ? "Năm " + month.slice(0, 4)
                     : range === "quarter"
                       ? "Quý " +
-                      Math.ceil(Number(month.slice(5)) / 3) +
-                      "/" +
-                      month.slice(0, 4)
+                        Math.ceil(Number(month.slice(5)) / 3) +
+                        "/" +
+                        month.slice(0, 4)
                       : range === "week"
                         ? "Tuần hiện tại"
                         : range === "custom"
                           ? fmt(fromDate) + " – " + fmt(toDate)
                           : "Tháng " +
-                          Number(month.slice(5)) +
-                          "/" +
-                          month.slice(0, 4)}
+                            Number(month.slice(5)) +
+                            "/" +
+                            month.slice(0, 4)}
                 </p>
                 <div className="table-wrap">
                   <table>
@@ -2725,7 +2867,9 @@ export function AppModals() {
                     checked={columns.includes(k)}
                     onChange={(yes: boolean) =>
                       setColumns(
-                        yes ? [...columns, k] : columns.filter((x: any) => x !== k),
+                        yes
+                          ? [...columns, k]
+                          : columns.filter((x: any) => x !== k),
                       )
                     }
                   />

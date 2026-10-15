@@ -1,14 +1,27 @@
 "use client";
 
 import React from "react";
-import { Download, Plus, Info } from "lucide-react";
+import { Download, Plus, Info, Trash2 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useApp } from "@/components/app-context";
 import { TableTasks } from "@/components/table-tasks";
-import { Btn, Pick, office, api } from "@/components/common-ui";
+import { Btn, Pick, office, has, api } from "@/components/common-ui";
 import { exportAssignmentExcel } from "@/lib/exports";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 
 export function TasksView() {
+  const [deleteTarget, setDeleteTarget] = React.useState<{
+    month: string;
+    count: number;
+  } | null>(null);
+  const [deletePhrase, setDeletePhrase] = React.useState("");
+  const [deleteError, setDeleteError] = React.useState("");
   const {
     data,
     user,
@@ -33,6 +46,38 @@ export function TasksView() {
     newTask,
     navigate,
   } = useApp();
+
+  function openDeleteMonthDialog() {
+    const count = monthTasks.length;
+    if (!count) return;
+    setDeleteTarget({ month, count });
+    setDeletePhrase("");
+    setDeleteError("");
+  }
+
+  async function clearMonthTasks() {
+    if (!deleteTarget) return;
+    const period = `${Number(deleteTarget.month.slice(5))}/${deleteTarget.month.slice(0, 4)}`;
+    if (deletePhrase.trim() !== `XÓA THÁNG ${period}`) {
+      setDeleteError(`Nhập đúng “XÓA THÁNG ${period}” để tiếp tục.`);
+      return;
+    }
+
+    const result = await run(
+      () =>
+        api("task-bulk-delete", {
+          month: deleteTarget.month,
+          confirmation: "XÓA NHIỆM VỤ THÁNG",
+        }),
+      `Đã xóa nhiệm vụ tháng ${period} trên toàn hệ thống; các trang đơn vị đã đồng bộ.`,
+      false,
+    );
+    if (result) {
+      setDeleteTarget(null);
+      setDeletePhrase("");
+      setDeleteError("");
+    }
+  }
 
   return (
     <Tabs
@@ -127,6 +172,18 @@ export function TasksView() {
                 <Download />
                 Xuất báo cáo
               </Btn>
+              {has(user, "admin") && (
+                <Btn
+                  small
+                  danger
+                  disabled={busy || monthTasks.length === 0}
+                  title={`Xóa tất cả nhiệm vụ của tháng ${Number(month.slice(5))}/${month.slice(0, 4)}`}
+                  onClick={openDeleteMonthDialog}
+                >
+                  <Trash2 />
+                  Xóa tất cả nhiệm vụ tháng này ({monthTasks.length})
+                </Btn>
+              )}
               <Pick
                 label="Sắp xếp"
                 value={sort}
@@ -150,6 +207,71 @@ export function TasksView() {
           <TableTasks />
         </section>
       </TabsContent>
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open && !busy) {
+            setDeleteTarget(null);
+            setDeletePhrase("");
+            setDeleteError("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle className="text-red-700">
+              Xóa nhiệm vụ của tháng đã chọn
+            </DialogTitle>
+            <DialogDescription>
+              {deleteTarget && (
+                <>
+                  Sẽ xóa {deleteTarget.count} nhiệm vụ tháng{" "}
+                  {Number(deleteTarget.month.slice(5))}/
+                  {deleteTarget.month.slice(0, 4)}, cùng báo cáo, thông tin phối
+                  hợp, nhắc việc và tệp đính kèm liên quan. Các tháng khác được
+                  giữ nguyên. Thao tác này không thể hoàn tác.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <label className="form-field wide">
+            <span>
+              Để xác nhận, nhập:{" "}
+              <b>
+                {deleteTarget &&
+                  `XÓA THÁNG ${Number(deleteTarget.month.slice(5))}/${deleteTarget.month.slice(0, 4)}`}
+              </b>
+            </span>
+            <input
+              value={deletePhrase}
+              onChange={(event) => {
+                setDeletePhrase(event.target.value);
+                setDeleteError("");
+              }}
+              autoComplete="off"
+              autoFocus
+              placeholder="Nhập cụm xác nhận"
+              disabled={busy}
+            />
+            {deleteError && (
+              <span className="text-sm text-red-600">{deleteError}</span>
+            )}
+          </label>
+          <div className="form-footer">
+            <Btn disabled={busy} onClick={() => setDeleteTarget(null)}>
+              Hủy
+            </Btn>
+            <Btn
+              danger
+              disabled={busy || !deletePhrase.trim()}
+              onClick={() => void clearMonthTasks()}
+            >
+              <Trash2 />
+              Xác nhận xóa {deleteTarget?.count ?? 0} nhiệm vụ
+            </Btn>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Tabs>
   );
 }

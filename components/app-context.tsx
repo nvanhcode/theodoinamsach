@@ -70,7 +70,7 @@ export function AppProvider({
     if (typeof window !== "undefined") {
       const path = window.location.pathname.replace(/^\/+|\/+$/g, "");
       const searchParams = new URLSearchParams(window.location.search);
-      const tabParam = searchParams.get("tab") || "profile";
+      const tabParam = searchParams.get("tab") || "units";
       if (path === "documents")
         return { page: "tasks", sub: "documents", adminTab: "profile" };
       if (path === "units")
@@ -213,6 +213,53 @@ export function AppProvider({
     return d;
   }
 
+  async function markNoticeRead(noticeId: string) {
+    if (!user?.id) return;
+    const alreadyRead = data.notices.some(
+      (notice: any) =>
+        notice.id === noticeId && notice.readBy?.includes(user.id),
+    );
+    if (alreadyRead) return;
+
+    // Update shared state immediately so every badge/count drops together.
+    setData((current: any) => ({
+      ...current,
+      notices: current.notices.map((notice: any) =>
+        notice.id === noticeId
+          ? {
+              ...notice,
+              readBy: Array.from(new Set([...(notice.readBy || []), user.id])),
+            }
+          : notice,
+      ),
+    }));
+    try {
+      const saved = await api("notice", { id: noticeId });
+      setData((current: any) => ({
+        ...current,
+        notices: current.notices.map((notice: any) =>
+          notice.id === noticeId ? saved : notice,
+        ),
+      }));
+    } catch (error) {
+      // Keep any other notice updates while reverting only this optimistic read.
+      setData((current: any) => ({
+        ...current,
+        notices: current.notices.map((notice: any) =>
+          notice.id === noticeId
+            ? {
+                ...notice,
+                readBy: (notice.readBy || []).filter(
+                  (reader: string) => reader !== user.id,
+                ),
+              }
+            : notice,
+        ),
+      }));
+      throw error;
+    }
+  }
+
   useEffect(() => {
     (async () => {
       try {
@@ -280,8 +327,8 @@ export function AppProvider({
       ) {
         setPage(path);
         if (path === "tasks") setSub("tasks");
-        if (path === "admin" && searchParams.get("tab")) {
-          setAdminTab(searchParams.get("tab")!);
+        if (path === "admin") {
+          setAdminTab(searchParams.get("tab") || "units");
         }
       } else {
         setPage("dashboard");
@@ -375,8 +422,9 @@ export function AppProvider({
       setPage(p);
       if (p === "tasks") setSub("tasks");
       if (p === "admin") {
-        if (params?.tab) setAdminTab(params.tab);
-        else setAdminTab("profile");
+        setAdminTab(
+          params?.tab || (has(user, "admin", "tech") ? "units" : "profile"),
+        );
       }
     }
 
@@ -426,7 +474,7 @@ export function AppProvider({
   );
 
   const showUnitProgress = (id: string, state = "") => {
-    navigate("progress", { unit: id, status: state });
+    navigate("dashboard", { unit: id, status: state });
     setDocumentFilter("");
   };
 
@@ -817,6 +865,7 @@ export function AppProvider({
     period,
     w,
     load,
+    markNoticeRead,
     run,
     change,
     open,

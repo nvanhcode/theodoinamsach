@@ -74,8 +74,7 @@ export function TableTasks({ rows, full = false }: any) {
       >
         <Eye />
       </button>
-      {page !== "dashboard" &&
-        office(user) &&
+      {page !== "dashboard" && office(user) && (
         <button
           className="icon-button"
           aria-label="Sửa nhiệm vụ"
@@ -84,7 +83,7 @@ export function TableTasks({ rows, full = false }: any) {
           <Pencil />
           <span>Sửa</span>
         </button>
-      }
+      )}
       <button
         className="icon-button"
         aria-label="Lịch sử nhiệm vụ"
@@ -107,6 +106,7 @@ export function TableTasks({ rows, full = false }: any) {
               <TableHead>TT</TableHead>
               <TableHead>NỘI DUNG NHIỆM VỤ</TableHead>
               <TableHead>ĐƠN VỊ CHỦ TRÌ</TableHead>
+              <TableHead>ĐƠN VỊ PHỐI HỢP</TableHead>
               <TableHead>
                 <button
                   onClick={() => setSort(sort === "due" ? "title" : "due")}
@@ -145,13 +145,11 @@ export function TableTasks({ rows, full = false }: any) {
                     </span>
                   </button>
                 </TableCell>
+                <TableCell className="unit-cell">{unitName(t.unit)}</TableCell>
                 <TableCell className="unit-cell">
-                  {unitName(t.unit)}
-                  {t.partners?.length > 0 && (
-                    <small className="muted block">
-                      Phối hợp: {t.partners.map(unitName).join(", ")}
-                    </small>
-                  )}
+                  {t.partners?.length
+                    ? t.partners.map(unitName).join(", ")
+                    : "—"}
                 </TableCell>
                 <TableCell>
                   <div

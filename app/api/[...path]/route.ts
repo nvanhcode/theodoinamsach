@@ -1,4 +1,8 @@
-import { reportingUnits, canReadReport } from "@/lib/report-access";
+import {
+  reportingUnits,
+  canReadReport,
+  canReadNotice,
+} from "@/lib/report-access";
 import { provisionUnitAccounts } from "@/lib/unit-accounts";
 import {
   readyTemplateBytes,
@@ -8,6 +12,11 @@ import {
 import { buildTaskTemplate, parseTaskExcel } from "@/lib/task-excel";
 import { reconcileBrand } from "@/lib/brand";
 import { reconcileUnitDirectory } from "@/lib/unit-directory";
+import {
+  createDirective,
+  notify,
+  notifyReportApproval,
+} from "@/lib/notice-writer";
 import { env } from "cloudflare:workers";
 import {
   db,
@@ -51,16 +60,18 @@ import {
 } from "@/lib/domain";
 const safe = (s: any, max = 20000) =>
   typeof s === "string" ? s.trim().slice(0, max) : "";
-async function notify(t: any, message: string, key = id()) {
-  await stmt(
-    "INSERT OR IGNORE INTO records(id,kind,parent_id,data,version,updated) VALUES(?,?,?,?,1,?)",
-    "notice-" + key,
-    "notice",
-    t.id,
-    JSON.stringify({ taskId: t.id, title: message, readBy: [] }),
-    now(),
-  ).run();
-}
+const attachmentDisposition = (filename: string) => {
+  const clean =
+    String(filename || "download")
+      .replace(/[\r\n]/g, "")
+      .trim() || "download";
+  const fallback = clean.replace(/[^\x20-\x7e]/g, "_").replace(/[\\"]/g, "_");
+  const encoded = encodeURIComponent(clean).replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+};
 async function taskFor(u: any, rid: string) {
   const t = await record(rid);
   check(
@@ -69,6 +80,41 @@ async function taskFor(u: any, rid: string) {
     404,
   );
   return t;
+}
+async function reconcileApprovedCompletions(u: any) {
+  if (!approver(u)) return;
+  const tasks = await records("task");
+  const reports = await records("report");
+  for (const task of tasks) {
+    if (task.status !== "review" || Number(task.progress) < 100) continue;
+    const taskReports = reports.filter(
+      (report: any) => report.taskId === task.id,
+    );
+    if (
+      taskReports.some((report: any) => report.state === "submitted") ||
+      !taskReports.some(
+        (report: any) =>
+          report.state === "confirmed" && Number(report.progress) >= 100,
+      )
+    )
+      continue;
+    const lastConfirmed = taskReports
+      .filter((report: any) => report.state === "confirmed")
+      .sort((a: any, b: any) =>
+        (b.reviewed || b.updated || "").localeCompare(
+          a.reviewed || a.updated || "",
+        ),
+      )[0];
+    if (!lastConfirmed || Number(lastConfirmed.progress) < 100) continue;
+    const completed = lastConfirmed.reviewed || now();
+    const saved = await update(
+      task,
+      { ...task, status: "done", completed },
+      u,
+      "Đồng bộ hoàn thành từ báo cáo đã xác nhận",
+    );
+    Object.assign(task, saved);
+  }
 }
 async function handle(req: Request, initialDefault = false) {
   try {
@@ -415,6 +461,7 @@ async function handle(req: Request, initialDefault = false) {
       await provisionUnitAccounts();
       await reconcileUnitDirectory();
       await reconcileBrand();
+      await reconcileApprovedCompletions(u);
       const tasks = (await records("task")).filter((t: any) => canSee(u, t));
       const ids = new Set(tasks.map((t: any) => t.id));
       const docs = (await records("document")).filter(
@@ -432,9 +479,12 @@ async function handle(req: Request, initialDefault = false) {
             r.author === u.id ||
             u.units.includes(r.unit)),
       );
-      const notices = (await records("notice")).filter((n: any) =>
-        ids.has(n.taskId),
-      );
+      const taskById = new Map(tasks.map((task: any) => [task.id, task]));
+      const notices = (await records("notice")).filter((n: any) => {
+        const task = taskById.get(n.taskId);
+        if (n.category === "admin-directive") return canReadNotice(u, n, null);
+        return task && canReadNotice(u, n, task);
+      });
       const fs = await all("SELECT * FROM files");
       return json({
         user: u,
@@ -671,8 +721,7 @@ async function handle(req: Request, initialDefault = false) {
       // 4. Tìm tất cả báo cáo tiến độ liên kết
       const allReports = await records("report");
       const deletedReports = allReports.filter(
-        (r: any) =>
-          leadTaskIds.has(r.taskId) || affectedUnitIds.has(r.unit),
+        (r: any) => leadTaskIds.has(r.taskId) || affectedUnitIds.has(r.unit),
       );
       const deletedReportIds = new Set(deletedReports.map((r: any) => r.id));
 
@@ -719,7 +768,8 @@ async function handle(req: Request, initialDefault = false) {
 
       // Xử lý tài khoản người dùng
       const usersToDelete: any[] = [];
-      const usersToUpdate: { id: string; units: string[]; version: number }[] = [];
+      const usersToUpdate: { id: string; units: string[]; version: number }[] =
+        [];
 
       for (const usr of assignedUsers) {
         let uUnits: string[] = [];
@@ -728,7 +778,9 @@ async function handle(req: Request, initialDefault = false) {
         } catch {
           uUnits = [];
         }
-        const remaining = uUnits.filter((id: string) => !affectedUnitIds.has(id));
+        const remaining = uUnits.filter(
+          (id: string) => !affectedUnitIds.has(id),
+        );
         const isAdminOrSelf =
           usr.id === u.id ||
           usr.username === "admin" ||
@@ -832,7 +884,9 @@ async function handle(req: Request, initialDefault = false) {
       statements.push(
         log(
           u,
-          cascade ? "Xóa cơ quan, đơn vị (kèm tài nguyên)" : "Xóa cơ quan, đơn vị",
+          cascade
+            ? "Xóa cơ quan, đơn vị (kèm tài nguyên)"
+            : "Xóa cơ quan, đơn vị",
           old.id,
           old,
           summaryInfo,
@@ -935,19 +989,18 @@ async function handle(req: Request, initialDefault = false) {
     if (path === "document" && method === "POST") {
       check(office(u));
       check(
-        safe(b.title) &&
-          safe(b.number) &&
+        safe(b.number) &&
           /^\d{4}-\d{2}$/.test(b.month) &&
-          /^\d{4}-\d{2}-\d{2}$/.test(b.issued),
-        "Nhập đủ số văn bản, ngày ban hành, trích yếu và kỳ.",
+          (!b.issued || /^\d{4}-\d{2}-\d{2}$/.test(b.issued)),
+        "Nhập số, ký hiệu văn bản hợp lệ.",
         400,
       );
       await assertOpen(b.month);
       const old = b.id ? await record(b.id) : null;
       const d = {
         number: safe(b.number, 100),
-        title: safe(b.title),
-        issued: b.issued,
+        title: safe(b.title) || safe(b.number, 100),
+        issued: safe(b.issued),
         issuer: safe(b.issuer, 200),
         type: safe(b.type, 100),
         content: safe(b.content, 50000),
@@ -1039,6 +1092,15 @@ async function handle(req: Request, initialDefault = false) {
           "Đơn vị phối hợp không hoạt động.",
           400,
         );
+      const partnerUpdateRequired =
+        b.partnerUpdateRequired ??
+        old?.partnerUpdateRequired ??
+        !!partners.length;
+      check(
+        !partnerUpdateRequired || partners.length > 0,
+        "Chỉ yêu cầu thông tin phối hợp khi đã chọn đơn vị phối hợp.",
+        400,
+      );
       const importCode = old?.importCode || safe(b.importCode, 60);
       check(
         !importCode || /^[A-Za-z0-9_-]{1,60}$/.test(importCode),
@@ -1135,6 +1197,7 @@ async function handle(req: Request, initialDefault = false) {
         group: unit.group,
         unit: b.unit,
         partners,
+        partnerUpdateRequired: !!partnerUpdateRequired,
         owner: safe(b.owner, 200),
         leader: safe(b.leader, 200),
         field: safe(b.field, 150),
@@ -1219,6 +1282,122 @@ async function handle(req: Request, initialDefault = false) {
         await notify(t, "Nhiệm vụ đã được điều chỉnh: " + t.title);
       return json(t);
     }
+    if (path === "task-bulk-delete" && method === "POST") {
+      check(has(u, "admin"));
+      const month = String(b.month || "");
+      check(/^\d{4}-(0[1-9]|1[0-2])$/.test(month), "Chọn tháng hợp lệ.", 400);
+      check(
+        b.confirmation === "XÓA NHIỆM VỤ THÁNG",
+        "Xác nhận xóa tháng chưa hợp lệ.",
+        400,
+      );
+
+      const tasks = (await records("task")).filter(
+        (task: any) => task.month === month,
+      );
+      const taskIds = new Set<string>(tasks.map((task: any) => task.id));
+      if (!taskIds.size)
+        return json({
+          ok: true,
+          deleted: {
+            month,
+            deletedTasks: 0,
+            deletedReports: 0,
+            deletedComments: 0,
+            deletedFiles: 0,
+            failedFileDeletes: 0,
+          },
+        });
+
+      const reports = (await records("report")).filter((r: any) =>
+        taskIds.has(r.taskId),
+      );
+      const milestones = (await records("milestone")).filter((m: any) =>
+        taskIds.has(m.taskId),
+      );
+      const notices = (await records("notice")).filter((n: any) =>
+        taskIds.has(n.taskId),
+      );
+      const comments = (await records("comment")).filter((c: any) =>
+        taskIds.has(c.taskId),
+      );
+      const dependentIds = [
+        ...Array.from(taskIds),
+        ...reports.map((r: any) => r.id),
+        ...milestones.map((m: any) => m.id),
+        ...notices.map((n: any) => n.id),
+        ...comments.map((c: any) => c.id),
+      ];
+      const fileIds = new Set<string>(
+        tasks.flatMap((task: any) =>
+          Array.isArray(task.evidenceIds) ? task.evidenceIds : [],
+        ),
+      );
+      for (let i = 0; i < dependentIds.length; i += 100) {
+        const ids = dependentIds.slice(i, i + 100);
+        const placeholders = ids.map(() => "?").join(",");
+        const attached = await all(
+          `SELECT id FROM files WHERE parent_id IN (${placeholders})`,
+          ...ids,
+        );
+        for (const file of attached) fileIds.add(file.id);
+      }
+
+      let failedFileDeletes = 0;
+      const fileDeleteResults = await Promise.allSettled(
+        Array.from(fileIds, (fileId) => bucket().delete(fileId)),
+      );
+      failedFileDeletes = fileDeleteResults.filter(
+        (result) => result.status === "rejected",
+      ).length;
+
+      const recordsToDelete = [
+        ...Array.from(taskIds),
+        ...reports.map((r: any) => r.id),
+        ...milestones.map((m: any) => m.id),
+        ...notices.map((n: any) => n.id),
+        ...comments.map((c: any) => c.id),
+      ];
+      const statements: any[] = [];
+      for (let i = 0; i < fileIds.size; i += 100) {
+        const ids = Array.from(fileIds).slice(i, i + 100);
+        statements.push(
+          stmt(
+            `DELETE FROM files WHERE id IN (${ids.map(() => "?").join(",")})`,
+            ...ids,
+          ),
+        );
+      }
+      for (let i = 0; i < recordsToDelete.length; i += 100) {
+        const ids = recordsToDelete.slice(i, i + 100);
+        statements.push(
+          stmt(
+            `DELETE FROM records WHERE id IN (${ids.map(() => "?").join(",")})`,
+            ...ids,
+          ),
+        );
+      }
+      const summary = {
+        month,
+        deletedTasks: tasks.length,
+        deletedReports: reports.length,
+        deletedComments: comments.length,
+        deletedFiles: fileIds.size,
+        failedFileDeletes,
+      };
+      for (let i = 0; i < statements.length; i += 80)
+        await db().batch(statements.slice(i, i + 80));
+      await db().batch([
+        log(
+          u,
+          "Xóa nhiệm vụ và dữ liệu liên quan theo tháng",
+          `tasks:${month}`,
+          null,
+          summary,
+        ),
+      ]);
+      return json({ ok: true, deleted: summary });
+    }
     if (path === "task-action" && method === "POST") {
       const t = await taskFor(u, b.id);
       check(t.version === b.version, "Nhiệm vụ đã được cập nhật.", 409);
@@ -1233,11 +1412,22 @@ async function handle(req: Request, initialDefault = false) {
         d.status = "assigned";
       } else if (a === "complete") {
         check(approver(u) && t.status === "review");
-        const rr = (await records("report")).filter(
-          (r: any) =>
-            r.taskId === t.id && r.state === "confirmed" && r.progress === 100,
+        const taskReports = (await records("report")).filter(
+          (r: any) => r.taskId === t.id,
         );
-        check(rr.length, "Cần báo cáo 100% đã được đơn vị xác nhận.", 400);
+        check(
+          !taskReports.some((r: any) => r.state === "submitted"),
+          "Cần thẩm định các báo cáo mới trước khi xác nhận hoàn thành.",
+          400,
+        );
+        check(
+          t.progress >= 100 &&
+            taskReports.some(
+              (r: any) => r.state === "confirmed" && r.progress >= 100,
+            ),
+          "Tiến độ đã xác nhận hiện tại phải đạt từ 100%.",
+          400,
+        );
         d.status = "done";
         d.completed = now();
       } else if (a === "pause" || a === "cancel") {
@@ -1300,9 +1490,9 @@ async function handle(req: Request, initialDefault = false) {
       );
       check(
         (!b.submit || safe(b.result, 100000)) &&
-          Number(b.progress) >= 0 &&
-          Number(b.progress) <= 100,
-        "Nhập kết quả và tiến độ 0–100%.",
+          Number.isFinite(Number(b.progress)) &&
+          Number(b.progress) >= 0,
+        "Nhập kết quả và tiến độ từ 0% trở lên.",
         400,
       );
       check(
@@ -1423,7 +1613,7 @@ async function handle(req: Request, initialDefault = false) {
           r = await insert("report", d, u, id(), t.id, [], reportAction);
           await update(t, nextTask, u, taskAction);
         }
-        await notify(t, "Báo cáo tiến độ cần xác nhận: " + t.title);
+        await notifyReportApproval(r, t);
       } else {
         r = old
           ? await update(old, d, u, reportAction)
@@ -1445,8 +1635,8 @@ async function handle(req: Request, initialDefault = false) {
       if (b.action === "confirm") {
         if (b.progress !== undefined) {
           check(
-            Number(b.progress) >= 0 && Number(b.progress) <= 100,
-            "Tiến độ hoàn thành phải từ 0 đến 100%.",
+            Number.isFinite(Number(b.progress)) && Number(b.progress) >= 0,
+            "Tiến độ hoàn thành phải từ 0% trở lên.",
             400,
           );
         }
@@ -1460,22 +1650,34 @@ async function handle(req: Request, initialDefault = false) {
       }
 
       const progress =
-        b.progress !== undefined && b.progress !== null && !isNaN(Number(b.progress))
-          ? Math.min(100, Math.max(0, Number(b.progress)))
+        b.progress !== undefined &&
+        b.progress !== null &&
+        Number.isFinite(Number(b.progress))
+          ? Math.max(0, Number(b.progress))
           : r.progress;
       const quantity =
-        b.quantity !== undefined && b.quantity !== null && !isNaN(Number(b.quantity))
+        b.quantity !== undefined &&
+        b.quantity !== null &&
+        !isNaN(Number(b.quantity))
           ? Math.max(0, Number(b.quantity))
-          : (r.quantity || 0);
+          : r.quantity || 0;
       const result = b.result !== undefined ? safe(b.result, 100000) : r.result;
-      const difficulty = b.difficulty !== undefined ? safe(b.difficulty) : r.difficulty;
+      const difficulty =
+        b.difficulty !== undefined ? safe(b.difficulty) : r.difficulty;
       const proposal = b.proposal !== undefined ? safe(b.proposal) : r.proposal;
 
       // Thu thập danh sách minh chứng từ báo cáo để đồng bộ vào hồ sơ nhiệm vụ
-      const reportFiles = await all("SELECT id FROM files WHERE parent_id=?", r.id);
+      const reportFiles = await all(
+        "SELECT id FROM files WHERE parent_id=?",
+        r.id,
+      );
       const reportFileIds = reportFiles.map((f: any) => f.id);
       const mergedEvidenceIds = Array.from(
-        new Set([...(t.evidenceIds || []), ...reportFileIds, ...(r.evidenceIds || [])]),
+        new Set([
+          ...(t.evidenceIds || []),
+          ...reportFileIds,
+          ...(r.evidenceIds || []),
+        ]),
       );
 
       const rd = {
@@ -1497,19 +1699,20 @@ async function handle(req: Request, initialDefault = false) {
           other.id !== r.id &&
           other.state === "submitted",
       );
+      const completesTask =
+        b.action === "confirm" && !otherSubmittedReports && progress >= 100;
       const nextTask = {
         ...t,
         progress,
         quantity,
         status: otherSubmittedReports
           ? "review"
-          : progress === 100
-            ? t.status === "done"
-              ? "done"
-              : "review"
+          : progress >= 100
+            ? "done"
             : ["draft", "assigned", "pending", "review"].includes(t.status)
               ? "working"
               : t.status,
+        ...(completesTask ? { completed: now() } : {}),
         result: result || t.result,
         difficulty: difficulty || t.difficulty,
         proposal: proposal || t.proposal,
@@ -1527,17 +1730,15 @@ async function handle(req: Request, initialDefault = false) {
               "Xác nhận và đồng bộ báo cáo",
               "Duyệt và cập nhật tiến độ",
             )
-          : await update(
-              r,
-              rd,
-              u,
-              "Yêu cầu bổ sung báo cáo",
-            );
+          : await update(r, rd, u, "Yêu cầu bổ sung báo cáo");
       await notify(
         t,
         b.action === "confirm"
           ? "Báo cáo đã xác nhận"
           : "Báo cáo cần bổ sung: " + safe(b.reason),
+        id(),
+        [r.unit],
+        b.action === "return" ? "report-supplement" : "report-confirmed",
       );
       return json(nr);
     }
@@ -1579,10 +1780,41 @@ async function handle(req: Request, initialDefault = false) {
       const t = await taskFor(u, b.taskId);
       check(safe(b.text), "Nhập nội dung.", 400);
       await assertOpen(t.month);
+      const allowedPartnerUnits = (t.partners || []).filter((unit: string) =>
+        u.units?.includes(unit),
+      );
+      const isPartnerUpdate =
+        b.type === "coordination" &&
+        has(u, "editor", "head", "partner") &&
+        allowedPartnerUnits.length > 0 &&
+        (t.partnerUpdateRequired ?? !!t.partners?.length);
+      check(
+        !isPartnerUpdate ||
+          ["assigned", "working", "review", "returned"].includes(t.status),
+        "Nhiệm vụ đã kết thúc, không thể gửi thêm thông tin phối hợp.",
+        400,
+      );
+      const coordinationUnit = isPartnerUpdate
+        ? b.unit ||
+          (allowedPartnerUnits.length === 1 ? allowedPartnerUnits[0] : "")
+        : "";
+      check(
+        !isPartnerUpdate || !!coordinationUnit,
+        "Chọn đúng đơn vị phối hợp gửi thông tin.",
+        400,
+      );
+      check(
+        !isPartnerUpdate || allowedPartnerUnits.includes(coordinationUnit),
+        "Đơn vị phối hợp gửi thông tin không thuộc nhiệm vụ này.",
+        403,
+      );
       check(
         canReport(u, t) ||
+          isPartnerUpdate ||
           has(u, "secretary", "standing", "chair", "council", "inspector"),
       );
+      const unit = coordinationUnit ? await record(coordinationUnit) : null;
+      const primaryUnit = isPartnerUpdate ? await record(t.unit) : null;
       const comment = await insert(
         "comment",
         {
@@ -1591,19 +1823,41 @@ async function handle(req: Request, initialDefault = false) {
           type: b.type === "direction" ? "direction" : "coordination",
           author: u.name,
           authorId: u.id,
+          ...(coordinationUnit
+            ? {
+                unit: coordinationUnit,
+                unitName: unit?.name || coordinationUnit,
+                recipientUnit: t.unit,
+                recipientUnitName: primaryUnit?.name || t.unit,
+              }
+            : {}),
         },
         u,
         id(),
         t.id,
       );
-      await notify(t, "Có ý kiến mới: " + t.title);
+      await notify(
+        t,
+        coordinationUnit
+          ? `Thông tin phối hợp mới · ${unit?.name || coordinationUnit}: ${t.title}`
+          : "Có ý kiến mới: " + t.title,
+        undefined,
+        isPartnerUpdate ? [t.unit] : undefined,
+      );
       return json(comment);
     }
     if (path === "comments" && method === "GET") {
       const tid = new URL(req.url).searchParams.get("id") || "";
       await taskFor(u, tid);
+      const comments = (await records("comment")).filter(
+        (c: any) => c.taskId === tid,
+      );
+      const files = await all("SELECT * FROM files");
       return json(
-        (await records("comment")).filter((c: any) => c.taskId === tid),
+        comments.map((comment: any) => ({
+          ...comment,
+          files: files.filter((file: any) => file.parent_id === comment.id),
+        })),
       );
     }
     if (path === "remind" && method === "POST") {
@@ -1618,7 +1872,9 @@ async function handle(req: Request, initialDefault = false) {
               ),
           );
       const cfg = await record("settings"),
-        reports = await records("report");
+        reports = await records("report"),
+        units = await records("unit");
+      const unitNames = new Map(units.map((unit: any) => [unit.id, unit.name]));
       let count = 0;
       for (const t of ts) {
         const w = reportWindow(t, new Date(), cfg);
@@ -1635,21 +1891,77 @@ async function handle(req: Request, initialDefault = false) {
                 ? "Nhiệm vụ sắp đến hạn"
                 : "";
         if (msg) {
-          await notify(
+          const deadline =
+            ds === "overdue"
+              ? new Date(t.due + "T00:00:00+07:00").toLocaleDateString(
+                  "vi-VN",
+                  {
+                    timeZone: "Asia/Ho_Chi_Minh",
+                  },
+                )
+              : "";
+          const detail =
+            ds === "overdue"
+              ? ` · ${unitNames.get(t.unit) || t.unit} · hạn ${deadline}`
+              : "";
+          count += await notify(
             t,
-            msg + ": " + t.title,
-            b.id ? id() : t.id + "-" + msg + "-" + w.key,
+            msg + detail + ": " + t.title,
+            b.id
+              ? id()
+              : t.id + "-" + msg + "-" + w.key + (deadline ? "-" + t.due : ""),
+            [t.unit],
+            b.id ? "admin-request" : "system-reminder",
           );
-          count++;
+        }
+      }
+      const selectedTaskIds = new Set(ts.map((task: any) => task.id));
+      const pendingReports = reports.filter(
+        (report: any) =>
+          report.state === "submitted" && selectedTaskIds.has(report.taskId),
+      );
+      for (const report of pendingReports) {
+        const task = ts.find((item: any) => item.id === report.taskId);
+        if (task) {
+          count += await notifyReportApproval(report, task, units);
         }
       }
       await log(u, "Đôn đốc nội bộ", "notifications", null, { count }).run();
       return json({ count });
     }
+    if (path === "directive" && method === "POST") {
+      check(office(u));
+      const message = safe(b.message, 4000);
+      check(message, "Nhập nội dung chỉ đạo nhắc việc.", 400);
+      const availableUnits = await records("unit");
+      const requestedUnits = Array.isArray(b.audienceUnits)
+        ? Array.from(
+            new Set(b.audienceUnits.filter((x: any) => typeof x === "string")),
+          )
+        : [];
+      const allowedIds = new Set(availableUnits.map((unit: any) => unit.id));
+      const audienceUnits = requestedUnits.filter((unit: string) =>
+        allowedIds.has(unit),
+      );
+      check(
+        audienceUnits.length > 0 &&
+          audienceUnits.length === requestedUnits.length,
+        "Chọn ít nhất một đơn vị nhận chỉ đạo hợp lệ.",
+        400,
+      );
+      const result = await createDirective(message, audienceUnits);
+      await log(u, "Gửi chỉ đạo nhắc việc", "notifications", null, {
+        noticeId: result.id,
+        audienceUnits,
+      }).run();
+      return json({ ...result, audienceUnits, message });
+    }
     if (path === "notice" && method === "POST") {
       const n = await record(b.id);
       check(n?.kind === "notice");
-      await taskFor(u, n.taskId);
+      const task =
+        n.category === "admin-directive" ? null : await taskFor(u, n.taskId);
+      check(canReadNotice(u, n, task));
       return json(
         await update(
           n,
@@ -1747,6 +2059,29 @@ async function handle(req: Request, initialDefault = false) {
             ["draft", "returned"].includes(r.state),
           "Chỉ được tải minh chứng cho báo cáo đang sửa.",
         );
+      } else if (r.kind === "comment") {
+        const task = await taskFor(u, r.taskId);
+        const allowedPartnerUnits = (task.partners || []).filter(
+          (unit: string) => u.units?.includes(unit),
+        );
+        check(
+          r.type === "coordination" &&
+            r.authorId === u.id &&
+            has(u, "editor", "head", "partner") &&
+            allowedPartnerUnits.includes(r.unit),
+          "Chỉ người gửi thông tin phối hợp được đính kèm tệp.",
+        );
+        check(
+          ["assigned", "working", "review", "returned"].includes(task.status),
+          "Nhiệm vụ đã kết thúc, không thể gửi thêm tệp phối hợp.",
+          400,
+        );
+        await assertOpen(task.month);
+        check(
+          (await all("SELECT id FROM files WHERE parent_id=?", pid)).length < 3,
+          "Mỗi lần gửi thông tin phối hợp được đính kèm tối đa 3 tệp.",
+          400,
+        );
       } else if (r.kind === "task") check(canReport(u, r));
       else
         check(
@@ -1791,39 +2126,42 @@ async function handle(req: Request, initialDefault = false) {
         "Tệp tối đa 25 MB.",
         400,
       );
-      const buf = new Uint8Array(await file.arrayBuffer());
+      // Check only the file signature before streaming the original body to R2.
+      // Reading the entire upload into memory adds a second copy of every file.
+      const signature = new Uint8Array(await file.slice(0, 16).arrayBuffer());
       const valid =
         ext === "zip"
           ? [
               [80, 75, 3, 4],
               [80, 75, 5, 6],
               [80, 75, 7, 8],
-            ].some((sig) => sig.every((n, i) => buf[i] === n))
+            ].some((sig) => sig.every((n, i) => signature[i] === n))
           : ext === "rar"
             ? [
                 [82, 97, 114, 33, 26, 7, 0],
                 [82, 97, 114, 33, 26, 7, 1, 0],
-              ].some((sig) => sig.every((n, i) => buf[i] === n))
+              ].some((sig) => sig.every((n, i) => signature[i] === n))
             : ext === "7z"
-              ? [55, 122, 188, 175, 39, 28].every((n, i) => buf[i] === n)
+              ? [55, 122, 188, 175, 39, 28].every((n, i) => signature[i] === n)
               : ["doc", "xls"].includes(ext || "")
                 ? [208, 207, 17, 224, 161, 177, 26, 225].every(
-                    (n, i) => buf[i] === n,
+                    (n, i) => signature[i] === n,
                   )
                 : ext === "webp"
-                  ? String.fromCharCode(...buf.slice(0, 4)) === "RIFF" &&
-                    String.fromCharCode(...buf.slice(8, 12)) === "WEBP"
+                  ? String.fromCharCode(...signature.slice(0, 4)) === "RIFF" &&
+                    String.fromCharCode(...signature.slice(8, 12)) === "WEBP"
                   : ext === "pdf"
-                    ? String.fromCharCode(...buf.slice(0, 4)) === "%PDF"
+                    ? String.fromCharCode(...signature.slice(0, 4)) === "%PDF"
                     : ["docx", "xlsx"].includes(ext || "")
-                      ? buf[0] === 80 && buf[1] === 75
+                      ? signature[0] === 80 && signature[1] === 75
                       : ["jpg", "jpeg"].includes(ext || "")
-                        ? buf[0] === 255 && buf[1] === 216
+                        ? signature[0] === 255 && signature[1] === 216
                         : ext === "png"
-                          ? buf[0] === 137 && buf[1] === 80
+                          ? signature[0] === 137 && signature[1] === 80
                           : ext === "mp4"
-                            ? String.fromCharCode(...buf.slice(4, 8)) === "ftyp"
-                            : buf[0] === 26 && buf[1] === 69;
+                            ? String.fromCharCode(...signature.slice(4, 8)) ===
+                              "ftyp"
+                            : signature[0] === 26 && signature[1] === 69;
       check(valid, "Nội dung tệp không khớp định dạng.", 400);
       if (r.kind === "settings")
         check(
@@ -1832,46 +2170,44 @@ async function handle(req: Request, initialDefault = false) {
           400,
         );
       const fid = id();
-      await bucket().put(fid, buf);
+      await bucket().put(fid, file.stream());
       try {
         if (r.kind === "report") {
-          await update(
-            r,
-            { ...r, evidenceIds: [...(r.evidenceIds || []), fid] },
-            u,
-            "Thêm minh chứng báo cáo",
-            (op) => [
-              stmt(
-                "INSERT INTO files(id,parent_id,name,mime,size,owner,created) SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM records WHERE id=? AND json_extract(data,'$._operation')=?)",
-                fid,
-                pid,
-                file.name.slice(0, 200),
-                (
-                  {
-                    pdf: "application/pdf",
-                    doc: "application/msword",
-                    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    xls: "application/vnd.ms-excel",
-                    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    png: "image/png",
-                    jpg: "image/jpeg",
-                    jpeg: "image/jpeg",
-                    webp: "image/webp",
-                    mp4: "video/mp4",
-                    webm: "video/webm",
-                    zip: "application/zip",
-                    rar: "application/vnd.rar",
-                    "7z": "application/x-7z-compressed",
-                  } as any
-                )[ext || ""],
-                file.size,
-                u.id,
-                now(),
-                r.id,
-                op,
-              ),
-            ],
-          );
+          // Keep each attachment independent from the report version so several
+          // files can upload together without competing to update the same row.
+          await db().batch([
+            stmt(
+              "INSERT INTO files(id,parent_id,name,mime,size,owner,created) VALUES(?,?,?,?,?,?,?)",
+              fid,
+              pid,
+              file.name.slice(0, 200),
+              (
+                {
+                  pdf: "application/pdf",
+                  doc: "application/msword",
+                  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                  xls: "application/vnd.ms-excel",
+                  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                  png: "image/png",
+                  jpg: "image/jpeg",
+                  jpeg: "image/jpeg",
+                  webp: "image/webp",
+                  mp4: "video/mp4",
+                  webm: "video/webm",
+                  zip: "application/zip",
+                  rar: "application/vnd.rar",
+                  "7z": "application/x-7z-compressed",
+                } as any
+              )[ext || ""],
+              file.size,
+              u.id,
+              now(),
+            ),
+            log(u, "Thêm minh chứng báo cáo", pid, null, {
+              file: file.name,
+              id: fid,
+            }),
+          ]);
         } else
           await db().batch([
             stmt(
@@ -1978,6 +2314,9 @@ async function handle(req: Request, initialDefault = false) {
               Array.isArray(task.evidenceIds) &&
               task.evidenceIds.includes(f.id)),
         );
+      } else if (r.kind === "comment") {
+        const task = await taskFor(u, r.taskId);
+        check(r.type === "coordination" && canSee(u, task));
       } else if (r.kind === "task") check(canSee(u, r));
       else
         check(
@@ -1990,19 +2329,20 @@ async function handle(req: Request, initialDefault = false) {
         );
       const obj = await bucket().get(f.id);
       check(obj, "Tệp không còn tồn tại.", 404);
+      const headers = new Headers({
+        "Content-Type": f.mime,
+        "Content-Disposition":
+          new URL(req.url).searchParams.get("preview") === "1" &&
+          (f.mime.startsWith("image/") || f.mime === "application/pdf")
+            ? "inline"
+            : attachmentDisposition(f.name),
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, no-store",
+      });
+      if (Number.isFinite(obj.size) && obj.size >= 0)
+        headers.set("Content-Length", String(obj.size));
       return new Response(obj.body, {
-        headers: {
-          "Content-Type": f.mime,
-          "Content-Disposition":
-            (new URL(req.url).searchParams.get("preview") === "1" &&
-            (f.mime.startsWith("image/") || f.mime === "application/pdf")
-              ? "inline"
-              : "attachment") +
-            "; filename*=UTF-8''" +
-            encodeURIComponent(f.name),
-          "X-Content-Type-Options": "nosniff",
-          "Cache-Control": "no-store",
-        },
+        headers,
       });
     }
     if (path === "export-log" && method === "POST") {
@@ -2042,7 +2382,10 @@ async function handle(req: Request, initialDefault = false) {
         files: (await all("SELECT * FROM files")).filter(
           (f: any) =>
             allowed.has(f.parent_id) ||
-            rec.some((r: any) => r.kind === "report" && r.id === f.parent_id),
+            rec.some(
+              (r: any) =>
+                ["report", "comment"].includes(r.kind) && r.id === f.parent_id,
+            ),
         ),
         note: "Không chứa mật khẩu, phiên đăng nhập hoặc nội dung tệp. Kho minh chứng cần sao lưu riêng.",
       });

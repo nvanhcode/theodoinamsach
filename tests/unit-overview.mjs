@@ -37,6 +37,7 @@ const sections = unitSections(units, [
   { unit: "police" },
   { unit: "ubnd" },
   { unit: "culture" },
+  { unit: "culture", partners: ["police"] },
 ]);
 assert.equal(sections.length, 2);
 const armed = sections.find((s) => s.key === "military");
@@ -48,8 +49,14 @@ assert.deepEqual(
   gov.units.map((u) => u.id),
   ["culture"],
 );
-assert.equal(gov.total, 2);
+assert.equal(gov.total, 3);
 assert.equal(gov.shared, 1);
+const culture = gov.units.find((u) => u.id === "culture");
+assert.equal(culture.lead, 2);
+assert.equal(culture.partner, 0);
+const police = armed.units.find((u) => u.id === "police");
+assert.equal(police.lead, 1);
+assert.equal(police.partner, 1);
 assert.deepEqual(
   unitSections(units, [], { group: "Lực lượng vũ trang" }).map((s) => s.key),
   ["military"],

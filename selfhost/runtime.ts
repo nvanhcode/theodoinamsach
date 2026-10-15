@@ -16,6 +16,10 @@ sql.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;");
 sql.exec("CREATE TABLE IF NOT EXISTS migrations(name TEXT PRIMARY KEY)");
 for (const file of readdirSync("drizzle")
   .filter((x) => x.endsWith(".sql"))
+  .filter(
+    (x) =>
+      !(process.env.TEST_MODE === "1" && x === "0001_nam_sach_snapshot.sql"),
+  )
   .sort()) {
   if (!sql.prepare("SELECT name FROM migrations WHERE name=?").get(file)) {
     sql.exec("BEGIN");
@@ -71,7 +75,11 @@ export const env = {
   },
   BUCKET: {
     async put(id: string, bytes: any) {
-      writeFileSync(path.join(root, "files", id), Buffer.from(bytes));
+      const content =
+        bytes && typeof bytes.getReader === "function"
+          ? Buffer.from(await new Response(bytes).arrayBuffer())
+          : Buffer.from(bytes);
+      writeFileSync(path.join(root, "files", id), content);
     },
     async get(id: string) {
       const p = path.join(root, "files", id);

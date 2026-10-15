@@ -18,6 +18,7 @@ function start() {
       PORT: String(port),
       DATA_DIR: dir,
       SETUP_TOKEN: token,
+      TEST_MODE: "1",
       APP_ORIGIN: "http://localhost:" + port,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -54,7 +55,16 @@ async function test(name, fn) {
   results.push("PASS " + name);
   console.log("PASS " + name);
 }
-let admin, unitUser, head, outsider, task, doc, report, backup;
+let admin,
+  unitUser,
+  partnerUser,
+  head,
+  outsider,
+  task,
+  doc,
+  report,
+  backup,
+  bulkDeleteUnitSession;
 try {
   await start();
   await test("01 API từ chối người chưa đăng nhập", () =>
@@ -284,6 +294,191 @@ try {
     const d = (await call("data", undefined, unitUser)).data;
     assert.equal(d.tasks[0].id, task.id);
     assert.equal(d.documents[0].id, doc.id);
+    partnerUser = (await call("login", { username: "xaydung", password: pass }))
+      .cookie;
+    await call(
+      "password",
+      { old: pass, password: pass + "-changed" },
+      partnerUser,
+    );
+    partnerUser = (
+      await call("login", {
+        username: "xaydung",
+        password: pass + "-changed",
+      })
+    ).cookie;
+    const partnerData = (await call("data", undefined, partnerUser)).data;
+    assert.equal(partnerData.tasks[0].id, task.id);
+    assert.equal(partnerData.tasks[0].progress, task.progress);
+    await call(
+      "report",
+      {
+        taskId: task.id,
+        result: "Đơn vị phối hợp không gửi báo cáo",
+        progress: 30,
+        submit: true,
+      },
+      partnerUser,
+      403,
+    );
+    const coordination = (
+      await call(
+        "comment",
+        {
+          taskId: task.id,
+          type: "coordination",
+          text: "Đã gửi thông tin phối hợp đến đơn vị chủ trì.",
+        },
+        partnerUser,
+      )
+    ).data;
+    assert.equal(coordination.unit, "unit-1");
+    const coordinationUpload = new FormData();
+    coordinationUpload.set("parentId", coordination.id);
+    coordinationUpload.set(
+      "file",
+      new Blob(["%PDF-1.4\n coordination attachment"], {
+        type: "application/pdf",
+      }),
+      "thong-tin-phoi-hop.pdf",
+    );
+    const coordinationUploadResponse = await fetch(
+      "http://localhost:" + port + "/api/upload",
+      {
+        method: "POST",
+        headers: { cookie: partnerUser, "X-NS-Request": "1" },
+        body: coordinationUpload,
+      },
+    );
+    assert.equal(
+      coordinationUploadResponse.status,
+      200,
+      await coordinationUploadResponse.clone().text(),
+    );
+    const coordinationFile = await coordinationUploadResponse.json();
+    assert.ok(
+      (await call("data", undefined, admin)).data.notices.some(
+        (notice) =>
+          notice.title.startsWith("Thông tin phối hợp mới") &&
+          notice.audienceUnits?.includes(task.unit),
+      ),
+    );
+    assert.ok(
+      (await call("data", undefined, unitUser)).data.notices.some(
+        (notice) =>
+          notice.title.startsWith("Thông tin phối hợp mới") &&
+          notice.audienceUnits?.includes(task.unit),
+      ),
+    );
+    assert.ok(
+      !(await call("data", undefined, partnerUser)).data.notices.some(
+        (notice) => notice.title.startsWith("Thông tin phối hợp mới"),
+      ),
+    );
+    const leadComments = (
+      await call("comments?id=" + task.id, undefined, unitUser)
+    ).data;
+    assert.ok(
+      leadComments.some(
+        (item) =>
+          item.id === coordination.id &&
+          item.unitName === "Ban Xây dựng Đảng" &&
+          item.recipientUnit === task.unit &&
+          item.files?.some((file) => file.id === coordinationFile.id),
+      ),
+    );
+    const leadDownload = await fetch(
+      "http://localhost:" +
+        port +
+        "/api/file?id=" +
+        encodeURIComponent(coordinationFile.id),
+      { headers: { cookie: unitUser } },
+    );
+    assert.equal(leadDownload.status, 200);
+    assert.equal(
+      await leadDownload.text(),
+      "%PDF-1.4\n coordination attachment",
+    );
+    const adminComments = (
+      await call("comments?id=" + task.id, undefined, admin)
+    ).data;
+    assert.ok(
+      adminComments.some((item) =>
+        item.files?.some((file) => file.id === coordinationFile.id),
+      ),
+    );
+    const unauthorizedDownload = await fetch(
+      "http://localhost:" +
+        port +
+        "/api/file?id=" +
+        encodeURIComponent(coordinationFile.id),
+      { headers: {} },
+    );
+    assert.notEqual(unauthorizedDownload.status, 200);
+    await call(
+      "comment",
+      {
+        taskId: task.id,
+        type: "coordination",
+        unit: "unit-2",
+        text: "Không được gửi nhầm đơn vị.",
+      },
+      partnerUser,
+      403,
+    );
+    await call(
+      "remind",
+      { id: task.id, message: "Chưa gửi báo cáo hằng tuần" },
+      admin,
+    );
+    const unitReminder = (
+      await call("data", undefined, unitUser)
+    ).data.notices.find(
+      (notice) =>
+        notice.title.startsWith("Chưa gửi báo cáo") &&
+        notice.category === "admin-request",
+    );
+    assert.ok(unitReminder);
+    assert.deepEqual(unitReminder.audienceUnits, [task.unit]);
+    assert.ok(
+      !(await call("data", undefined, partnerUser)).data.notices.some(
+        (notice) => notice.title.startsWith("Chưa gửi báo cáo"),
+      ),
+    );
+    const directive = await call(
+      "directive",
+      {
+        message: "Chuẩn bị nội dung phục vụ giao ban tuần này.",
+        audienceUnits: [task.unit],
+      },
+      admin,
+    );
+    const unitDirective = (
+      await call("data", undefined, unitUser)
+    ).data.notices.find((notice) => notice.id === directive.data.id);
+    assert.equal(
+      unitDirective.message,
+      "Chuẩn bị nội dung phục vụ giao ban tuần này.",
+    );
+    assert.deepEqual(unitDirective.audienceUnits, [task.unit]);
+    assert.ok(
+      !(await call("data", undefined, partnerUser)).data.notices.some(
+        (notice) => notice.id === directive.data.id,
+      ),
+    );
+    await call("notice", { id: directive.data.id }, unitUser);
+    const unitAfterRead = (await call("data", undefined, unitUser)).data;
+    assert.ok(
+      unitAfterRead.notices
+        .find((notice) => notice.id === directive.data.id)
+        .readBy.includes(unitAfterRead.user.id),
+    );
+    await call(
+      "directive",
+      { message: "Không được gửi chỉ đạo.", audienceUnits: [task.unit] },
+      unitUser,
+      403,
+    );
   });
   await test("17 Đơn vị ngoài phạm vi không thấy dữ liệu", async () => {
     outsider = (await call("login", { username: "testubkt", password: pass }))
@@ -398,6 +593,14 @@ try {
     ).data;
     assert.equal(report.state, "submitted");
     assert.ok(report.submitted.startsWith("2026"));
+    const notices = (await call("data", undefined, admin)).data.notices;
+    assert.ok(
+      notices.some(
+        (notice) =>
+          notice.title.includes("Báo cáo đơn vị cần phê duyệt") &&
+          notice.title.includes(task.title),
+      ),
+    );
   });
   await test("24 Không tự xác nhận báo cáo", () =>
     call(
@@ -419,38 +622,121 @@ try {
         admin,
       )
     ).data;
+    const unitNotices = (await call("data", undefined, unitUser)).data.notices;
+    const partnerNotices = (await call("data", undefined, partnerUser)).data
+      .notices;
+    const supplement = unitNotices.find(
+      (notice) =>
+        notice.title.startsWith("Báo cáo cần bổ sung") &&
+        notice.taskId === task.id,
+    );
+    assert.ok(supplement);
+    assert.deepEqual(supplement.audienceUnits, [report.unit]);
+    assert.ok(
+      !partnerNotices.some(
+        (notice) =>
+          notice.title.startsWith("Báo cáo cần bổ sung") &&
+          notice.taskId === task.id,
+      ),
+    );
     report = (
       await call(
         "report",
         {
           ...report,
           result: "Đã hoàn thành, có sản phẩm",
-          progress: 100,
+          progress: 125,
           submit: true,
         },
         unitUser,
       )
     ).data;
   });
-  await test("26 Xác nhận báo cáo đồng bộ tiến độ, chưa tự hoàn thành", async () => {
+  let secondPendingReport;
+  await test("26 Duyệt báo cáo còn báo cáo mới thì chưa hoàn thành", async () => {
+    secondPendingReport = (
+      await call(
+        "report",
+        {
+          taskId: task.id,
+          result: "Báo cáo cùng kỳ còn chờ thẩm định",
+          progress: 80,
+          submit: true,
+        },
+        unitUser,
+      )
+    ).data;
     await call(
       "report-action",
       { id: report.id, version: report.version, action: "confirm" },
       admin,
     );
     task = (await call("data", undefined, admin)).data.tasks[0];
-    assert.equal(task.progress, 100);
+    assert.equal(task.progress, 125);
     assert.equal(task.status, "review");
+    await call(
+      "task-action",
+      { id: task.id, version: task.version, action: "complete" },
+      admin,
+      400,
+    );
+  });
+  await test("26b Duyệt tiến độ dưới 100% vẫn chưa hoàn thành", async () => {
+    await call(
+      "report-action",
+      {
+        id: secondPendingReport.id,
+        version: secondPendingReport.version,
+        action: "confirm",
+      },
+      admin,
+    );
+    task = (await call("data", undefined, admin)).data.tasks.find(
+      (item) => item.id === task.id,
+    );
+    assert.equal(task.progress, 80);
+    assert.equal(task.status, "working");
+  });
+  await test("26c Duyệt tiến độ từ 100% tự hoàn thành và cập nhật bộ đếm", async () => {
+    report = (
+      await call(
+        "report",
+        {
+          taskId: task.id,
+          result: "Báo cáo mới hoàn thành",
+          progress: 125,
+          submit: true,
+        },
+        unitUser,
+      )
+    ).data;
+    await call(
+      "report-action",
+      { id: report.id, version: report.version, action: "confirm" },
+      admin,
+    );
+    task = (await call("data", undefined, admin)).data.tasks.find(
+      (item) => item.id === task.id,
+    );
+    assert.equal(task.progress, 125);
+    assert.equal(task.status, "done");
+    assert.ok(task.completed);
+    assert.equal(
+      (await call("data", undefined, admin)).data.tasks.filter(
+        (item) => item.month === task.month && item.status === "done",
+      ).length,
+      1,
+    );
   });
   await test("27 Không sửa âm thầm báo cáo đã xác nhận", () =>
-    call("report", { ...report, progress: 40 }, unitUser, 403));
+    call("report", { ...report, progress: 40 }, unitUser, 400));
   await test("28 Upload minh chứng thật", async () => {
     const fd = new FormData();
     fd.set("parentId", task.id);
     fd.set(
       "file",
       new Blob(["%PDF-1.4\n TEST"], { type: "application/pdf" }),
-      "test.pdf",
+      "Tài liệu báo cáo.pdf",
     );
     const r = await fetch("http://localhost:" + port + "/api/upload", {
       method: "POST",
@@ -468,6 +754,10 @@ try {
       "http://localhost:" + port + "/api/file?id=" + f.id,
       { headers: { cookie: admin } },
     );
+    assert.match(
+      download.headers.get("content-disposition"),
+      /attachment; filename="T_i li_u b_o c_o\.pdf"; filename\*=UTF-8''T%C3%A0i%20li%E1%BB%87u%20b%C3%A1o%20c%C3%A1o\.pdf/,
+    );
     assert.equal(await download.text(), "%PDF-1.4\n TEST");
   });
   await test("29 Từ chối tệp giả định dạng", async () => {
@@ -481,15 +771,16 @@ try {
     });
     assert.equal(r.status, 400);
   });
-  await test("30 Xác nhận hoàn thành riêng biệt", async () => {
-    task = (
-      await call(
-        "task-action",
-        { id: task.id, version: task.version, action: "complete" },
-        admin,
-      )
-    ).data;
+  await test("30 Bộ đếm hoàn thành lấy trạng thái nhiệm vụ đã duyệt", async () => {
     assert.equal(task.status, "done");
+    const refreshed = (await call("data", undefined, admin)).data.tasks;
+    assert.equal(
+      refreshed.filter(
+        (item) => item.month === task.month && item.status === "done",
+      ).length,
+      1,
+      "dashboard completion count reflects the confirmed task exactly once",
+    );
   });
   await test("31 Không chuyển tiếp nhiệm vụ đã hoàn thành", () =>
     call(
@@ -678,6 +969,268 @@ try {
     assert.equal(d.tasks.length, 3);
     assert.equal(d.documents.length, 1);
     assert.equal(d.milestones.length, 1);
+  });
+  await test("46 Đơn vị cấp dưới chủ trì báo cáo, đơn vị phối hợp chỉ theo dõi", async () => {
+    const childUnit = (
+      await call(
+        "unit",
+        {
+          name: "Đơn vị con kiểm thử",
+          group: "UBND",
+          parentUnitId: "unit-8",
+          active: true,
+        },
+        admin,
+      )
+    ).data;
+    await call(
+      "users",
+      {
+        username: "childreport",
+        name: "Đầu mối đơn vị con",
+        roles: ["editor"],
+        units: [childUnit.id],
+        groups: [],
+        password: pass,
+        active: true,
+      },
+      admin,
+    );
+    let childUser = (
+      await call("login", { username: "childreport", password: pass })
+    ).cookie;
+    await call(
+      "password",
+      { old: pass, password: pass + "-changed" },
+      childUser,
+    );
+    childUser = (
+      await call("login", {
+        username: "childreport",
+        password: pass + "-changed",
+      })
+    ).cookie;
+    const childTask = (
+      await call(
+        "task",
+        {
+          title: "Nhiệm vụ đơn vị con chủ trì",
+          month: "2026-11",
+          unit: childUnit.id,
+          partners: ["unit-1"],
+          assignedDate: "2026-11-01",
+          due: "2026-11-30",
+          importAction: "assign",
+        },
+        admin,
+      )
+    ).data;
+    await call(
+      "users",
+      {
+        username: "coordtest",
+        name: "Đầu mối phối hợp",
+        roles: ["editor"],
+        units: ["unit-1"],
+        groups: [],
+        password: pass,
+        active: true,
+      },
+      admin,
+    );
+    let coordinator = (
+      await call("login", { username: "coordtest", password: pass })
+    ).cookie;
+    await call(
+      "password",
+      { old: pass, password: pass + "-changed" },
+      coordinator,
+    );
+    coordinator = (
+      await call("login", {
+        username: "coordtest",
+        password: pass + "-changed",
+      })
+    ).cookie;
+    const partnerData = (await call("data", undefined, coordinator)).data;
+    assert.equal(
+      partnerData.tasks.find((t) => t.id === childTask.id).status,
+      "assigned",
+    );
+    await call(
+      "report",
+      {
+        taskId: childTask.id,
+        result: "Đơn vị phối hợp không gửi báo cáo",
+        progress: 100,
+        submit: true,
+      },
+      coordinator,
+      403,
+    );
+    const report = (
+      await call(
+        "report",
+        {
+          taskId: childTask.id,
+          result: "Đơn vị con cập nhật kết quả",
+          progress: 60,
+          submit: true,
+        },
+        childUser,
+      )
+    ).data;
+    await call(
+      "report-action",
+      { id: report.id, version: report.version, action: "confirm" },
+      admin,
+    );
+    const visibleProgress = (await call("data", undefined, coordinator)).data;
+    assert.equal(
+      visibleProgress.tasks.find((t) => t.id === childTask.id).progress,
+      60,
+    );
+    assert.ok(
+      visibleProgress.reports.some(
+        (r) => r.taskId === childTask.id && r.state === "confirmed",
+      ),
+    );
+  });
+  await test("47 Chỉ Admin được xóa nhiệm vụ hàng loạt", async () => {
+    await call(
+      "users",
+      {
+        username: "bulkdeltest",
+        name: "Kiểm thử quyền xóa",
+        roles: ["editor"],
+        units: ["unit-8"],
+        groups: [],
+        password: pass,
+        active: true,
+      },
+      admin,
+    );
+    const activeUnitSession = (
+      await call("login", { username: "bulkdeltest", password: pass })
+    ).cookie;
+    await call(
+      "password",
+      { old: pass, password: pass + "-changed" },
+      activeUnitSession,
+    );
+    const changedUnitSession = (
+      await call("login", {
+        username: "bulkdeltest",
+        password: pass + "-changed",
+      })
+    ).cookie;
+    bulkDeleteUnitSession = changedUnitSession;
+    await call(
+      "task-bulk-delete",
+      { month: "2026-10", confirmation: "XÓA NHIỆM VỤ THÁNG" },
+      changedUnitSession,
+      403,
+    );
+  });
+  await test("48 Xóa theo tháng dọn báo cáo, tệp và giữ nguyên tháng khác", async () => {
+    const fixtureTask = (
+      await call(
+        "task",
+        {
+          title: "Nhiệm vụ kiểm thử xóa hàng loạt",
+          month: "2026-11",
+          unit: "unit-8",
+          assignedDate: "2026-11-01",
+          due: "2026-11-30",
+          importAction: "assign",
+        },
+        admin,
+      )
+    ).data;
+    assert.equal(fixtureTask.month, "2026-11");
+    const draft = (
+      await call(
+        "report",
+        {
+          taskId: fixtureTask.id,
+          result: "Báo cáo kiểm thử xóa hàng loạt",
+          progress: 10,
+          submit: false,
+        },
+        bulkDeleteUnitSession,
+      )
+    ).data;
+    const fd = new FormData();
+    fd.set("parentId", draft.id);
+    fd.set(
+      "file",
+      new Blob(["%PDF-1.4\n BULK DELETE TEST"], {
+        type: "application/pdf",
+      }),
+      "minh-chung-xoa.pdf",
+    );
+    const upload = await fetch("http://localhost:" + port + "/api/upload", {
+      method: "POST",
+      headers: { cookie: bulkDeleteUnitSession, "X-NS-Request": "1" },
+      body: fd,
+    });
+    assert.equal(upload.status, 200, await upload.clone().text());
+    const file = await upload.json();
+    const result = (
+      await call(
+        "task-bulk-delete",
+        {
+          month: "2026-11",
+          confirmation: "XÓA NHIỆM VỤ THÁNG",
+        },
+        admin,
+      )
+    ).data;
+    assert.ok(result.deleted.deletedTasks >= 1, JSON.stringify(result));
+    assert.ok(result.deleted.deletedReports >= 1);
+    assert.ok(result.deleted.deletedFiles >= 1);
+    const afterMonth = (await call("data", undefined, admin)).data;
+    const afterUnit = (await call("data", undefined, bulkDeleteUnitSession))
+      .data;
+    assert.equal(
+      afterMonth.tasks.some((t) => t.month === "2026-11"),
+      false,
+    );
+    assert.equal(
+      afterUnit.tasks.some((t) => t.id === fixtureTask.id),
+      false,
+      "Đơn vị chủ trì không còn thấy nhiệm vụ đã xóa",
+    );
+    assert.equal(
+      afterUnit.reports.some((r) => r.taskId === fixtureTask.id),
+      false,
+      "Báo cáo nhiệm vụ đã xóa không còn trong trang đơn vị",
+    );
+    assert.ok(afterMonth.tasks.some((t) => t.month === "2026-10"));
+    assert.equal(
+      afterMonth.reports.some((r) => r.taskId === fixtureTask.id),
+      false,
+    );
+    assert.equal(
+      (
+        await fetch("http://localhost:" + port + "/api/file?id=" + file.id, {
+          headers: { cookie: admin },
+        })
+      ).status,
+      404,
+    );
+  });
+  await test("49 Từ chối yêu cầu xóa tất cả tháng và giữ dữ liệu", async () => {
+    await call(
+      "task-bulk-delete",
+      { scope: "all", confirmation: "XÓA TẤT CẢ" },
+      admin,
+      400,
+    );
+    const after = (await call("data", undefined, admin)).data;
+    assert.ok(after.tasks.length > 0);
+    assert.ok(after.tasks.every((task) => task.month !== "2026-11"));
+    assert.ok(after.tasks.some((task) => task.month === "2026-10"));
   });
   console.log("TOTAL " + passed + " passed");
   writeFileSync(

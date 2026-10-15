@@ -1,5 +1,7 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { toast } from "sonner";
+import { Download } from "lucide-react";
 import { ReportingDashboard, matchesSummary } from "./dashboard";
 import {
   Dialog,
@@ -18,9 +20,18 @@ import {
 } from "@/lib/domain";
 import {
   reportingUnits,
+  coordinationUnits,
+  partnerUpdateRequired as requiresPartnerUpdate,
+  splitAssignedTasks,
   evidenceLabels,
   assignmentNoticeTitle,
+  isAdminRequestNotice,
 } from "@/lib/report-access";
+import { noticePriority } from "@/lib/notice-priority";
+import {
+  isPercentageProgressTask,
+  normalizePercentageReport,
+} from "@/lib/progress-mode";
 const dates = (s: string) =>
   s
     ? new Date(s.length === 10 ? s + "T00:00:00+07:00" : s).toLocaleString(
@@ -47,7 +58,14 @@ const reportingNames: any = {
   missing: "Chưa gửi, quá hạn báo cáo",
   returned: "Cần bổ sung",
 };
-export function ReportingPortal({ data, user, load, api, onLogout }: any) {
+export function ReportingPortal({
+  data,
+  user,
+  load,
+  markNoticeRead,
+  api,
+  onLogout,
+}: any) {
   const [tab, setTab] = useState("dashboard"),
     [taskFilter, setTaskFilter] = useState("all"),
     [unitFilter, setUnitFilter] = useState(""),
@@ -60,9 +78,15 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
     [error, setError] = useState(""),
     [message, setMessage] = useState(""),
     [history, setHistory] = useState<any[]>([]),
+    [coordinationComments, setCoordinationComments] = useState<any[]>([]),
+    [coordinationText, setCoordinationText] = useState(""),
+    [coordinationFiles, setCoordinationFiles] = useState<File[]>([]),
+    [coordinationPendingId, setCoordinationPendingId] = useState(""),
+    [coordinationUnit, setCoordinationUnit] = useState(""),
     [showHistory, setShowHistory] = useState(false),
     [password, setPassword] = useState({ old: "", password: "" });
   const [dialogViewport, setDialogViewport] = useState<React.CSSProperties>({});
+  const seenDirectiveIds = useRef<Set<string> | null>(null);
   useEffect(() => {
     if (!task) return;
     const viewport = window.visualViewport;
@@ -88,6 +112,10 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
   const unitName = (id: string) =>
     data.units.find((u: any) => u.id === id)?.name || "—";
   const periodTasks = data.tasks.filter((t: any) => t.month === month);
+  const { lead: leadTasks, partner: partnerTasks } = splitAssignedTasks(
+    user,
+    periodTasks,
+  );
   const tasks = data.tasks
     .filter(
       (t: any) =>
@@ -99,7 +127,10 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
     .filter(
       (r: any) =>
         r.month === month &&
-        (r.author === user.id || user.units.includes(r.unit)),
+        (r.author === user.id ||
+          user.units.includes(r.unit) ||
+          (r.state !== "draft" &&
+            periodTasks.some((t: any) => t.id === r.taskId))),
     )
     .sort((a: any, b: any) => b.updated.localeCompare(a.updated));
   const editable = (r: any) =>
@@ -120,13 +151,23 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
       new Date(),
       data.settings,
     );
-  const visibleTasks = tasks.filter(
-    (t: any) =>
-      matchesSummary(t, taskFilter, reportingStatus) &&
+  const visibleTasks = tasks.filter((t: any) => {
+    const isLead = user.units.includes(t.unit);
+    const isPartner = !isLead && coordinationUnits(user, t).length > 0;
+    const matchesRole =
+      taskFilter === "all" ||
+      (taskFilter === "lead" && isLead) ||
+      (taskFilter === "partner" && isPartner) ||
+      (isLead && matchesSummary(t, taskFilter, reportingStatus));
+    return (
+      matchesRole &&
       (!unitFilter ||
         t.unit === unitFilter ||
-        (t.partners || []).includes(unitFilter)),
-  );
+        (t.partners || []).includes(unitFilter))
+    );
+  });
+  const { lead: visibleLeadTasks, partner: visiblePartnerTasks } =
+    splitAssignedTasks(user, visibleTasks);
   const showTasks = (key: string, unit = "") => {
     setTaskFilter(key);
     setUnitFilter(unit);
@@ -135,8 +176,9 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
   };
   const change = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));
   const openTask = (t: any, r?: any, view = false) => {
-    const draft =
+    const report =
       r || reports.find((r: any) => r.taskId === t.id && editable(r));
+    const draft = normalizePercentageReport(t, report);
     setTask(t);
     setForm(
       draft || {
@@ -154,9 +196,102 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
     setMessage("");
     setHistory([]);
     setShowHistory(false);
+    setCoordinationText("");
+    setCoordinationFiles([]);
+    setCoordinationPendingId("");
+    const partnerScopes = coordinationUnits(user, t);
+    setCoordinationUnit(partnerScopes[0] || "");
+    setCoordinationComments([]);
+    if (
+      requiresPartnerUpdate(t) &&
+      t.partners?.length &&
+      (user.units.includes(t.unit) || partnerScopes.length)
+    ) {
+      api("comments?id=" + encodeURIComponent(t.id))
+        .then((items: any[]) => setCoordinationComments(items))
+        .catch((e: any) => setError(e.message));
+    }
+  };
+  const renderTaskCard = (t: any) => {
+    const isLead = user.units.includes(t.unit);
+    const partnerScopes = coordinationUnits(user, t);
+    const canSendCoordination =
+      !isLead && partnerScopes.length > 0 && requiresPartnerUpdate(t);
+    const visibleReport = reports.find(
+      (r: any) => r.taskId === t.id && r.state !== "draft",
+    );
+    return (
+      <article className="panel unit-task-card" key={t.id}>
+        <h2>{t.title}</h2>
+        <p className="muted">
+          Chủ trì: {unitName(t.unit)}
+          {!isLead ? " · Đơn vị bạn phối hợp thực hiện" : ""}
+        </p>
+        <div className="unit-task-meta">
+          <span>
+            <b>Hạn hoàn thành:</b> {dates(t.due)}{" "}
+            {deadlineState(t) === "overdue" && (
+              <em className="badge red">Quá hạn nhiệm vụ</em>
+            )}
+          </span>
+          {Number(t.target) > 0 && (
+            <span>
+              <b>Chỉ tiêu:</b> {t.target} {t.measure}
+            </span>
+          )}
+          <span>
+            <b>Thực hiện:</b> {stateNames[t.status]} · {t.progress || 0}%
+            {" đã xác nhận"}
+          </span>
+          {isLead ? (
+            <span>
+              <b>Báo cáo:</b> {reportingNames[reportingStatus(t)]}
+            </span>
+          ) : (
+            <span>
+              <b>Vai trò:</b> Nhiệm vụ phối hợp · Theo dõi tiến độ của đơn vị
+              chủ trì
+            </span>
+          )}
+        </div>
+        <button
+          className="btn primary"
+          onClick={() =>
+            openTask(
+              t,
+              isLead ? undefined : visibleReport,
+              !isLead || !active(t),
+            )
+          }
+        >
+          {!isLead
+            ? "Xem tiến độ chủ trì"
+            : active(t)
+              ? "Cập nhật báo cáo"
+              : "Xem báo cáo"}
+        </button>
+        {canSendCoordination && (
+          <button
+            className="btn mt-2"
+            onClick={() => openTask(t, visibleReport, true)}
+          >
+            Gửi thông tin phối hợp
+          </button>
+        )}
+      </article>
+    );
   };
   async function persist(submit: boolean) {
-    const r = await api("report", { ...form, taskId: task.id, submit });
+    const progress =
+      Number(task.target) > 0 && !isPercentageProgressTask(task)
+        ? Math.max(0, (Number(form.quantity || 0) / Number(task.target)) * 100)
+        : form.progress;
+    const r = await api("report", {
+      ...form,
+      progress,
+      taskId: task.id,
+      submit,
+    });
     setForm(r);
     const fresh = await load();
     if (fresh?.tasks && task) {
@@ -173,7 +308,7 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
       await persist(submit);
       setMessage(
         submit
-          ? "Đã gửi báo cáo. Nhiệm vụ chỉ hoàn thành sau khi được xác nhận."
+          ? "Đã gửi báo cáo. Nhiệm vụ hoàn thành khi báo cáo đạt từ 100% được xác nhận."
           : "Đã lưu bản nháp. Chưa tính là gửi báo cáo.",
       );
       if (submit) setReadOnly(true);
@@ -182,6 +317,89 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
     } finally {
       setBusy(false);
     }
+  }
+  async function sendCoordination() {
+    if (
+      !task ||
+      (!coordinationPendingId &&
+        !coordinationText.trim() &&
+        !coordinationFiles.length)
+    ) {
+      setError("Nhập nội dung hoặc chọn tệp cần gửi đơn vị chủ trì.");
+      return;
+    }
+    if (!coordinationPendingId && coordinationFiles.length > 3) {
+      setError("Mỗi lần gửi tối đa 3 tệp.");
+      return;
+    }
+    if (coordinationFiles.some((file) => file.size > 25 * 1024 * 1024)) {
+      setError("Mỗi tệp phối hợp tối đa 25 MB.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setMessage("");
+    let sentCommentId = coordinationPendingId;
+    let uploaded = 0;
+    try {
+      if (!sentCommentId) {
+        const comment = await api("comment", {
+          taskId: task.id,
+          text: coordinationText.trim() || "Đã gửi tệp phối hợp.",
+          type: "coordination",
+          unit: coordinationUnit,
+        });
+        sentCommentId = comment.id;
+        setCoordinationPendingId(sentCommentId);
+      }
+      for (const file of coordinationFiles) {
+        const fd = new FormData();
+        fd.set("parentId", sentCommentId);
+        fd.set("file", file);
+        const response = await fetch("/api/upload", {
+          method: "POST",
+          credentials: "include",
+          headers: { "X-NS-Request": "1" },
+          body: fd,
+        });
+        const result: any = await response.json();
+        if (!response.ok) throw new Error(file.name + ": " + result.error);
+        uploaded++;
+      }
+      const freshComments = await api(
+        "comments?id=" + encodeURIComponent(task.id),
+      );
+      setCoordinationComments(freshComments);
+      setCoordinationText("");
+      setCoordinationFiles([]);
+      setCoordinationPendingId("");
+      setMessage(
+        coordinationFiles.length
+          ? `Đã gửi thông tin và ${uploaded} tệp phối hợp đến đơn vị chủ trì.`
+          : "Đã gửi thông tin phối hợp đến đơn vị chủ trì.",
+      );
+      await load();
+    } catch (e: any) {
+      if (sentCommentId) {
+        setCoordinationPendingId(sentCommentId);
+        setCoordinationFiles((files) => files.slice(uploaded));
+        const freshComments = await api(
+          "comments?id=" + encodeURIComponent(task.id),
+        ).catch(() => null);
+        if (freshComments) setCoordinationComments(freshComments);
+      }
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  function includeCoordinationText(comment: any) {
+    const section = `[Thông tin phối hợp từ ${comment.unitName || comment.author}]\n${comment.text}`;
+    setForm((current: any) => ({
+      ...current,
+      result: [current.result?.trim(), section].filter(Boolean).join("\n\n"),
+    }));
+    setMessage("Đã chèn nội dung phối hợp vào kết quả báo cáo.");
   }
   async function uploadFiles(files: File[]) {
     if (!files.length) return;
@@ -204,22 +422,35 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
     let count = 0;
     try {
       saved = await persist(false);
-      for (const file of files) {
-        const fd = new FormData();
-        fd.set("parentId", saved.id);
-        fd.set("file", file);
-        const response = await fetch("/api/upload", {
-          method: "POST",
-          credentials: "include",
-          headers: { "X-NS-Request": "1" },
-          body: fd,
-        });
-        const result: any = await response.json();
-        if (!response.ok) throw new Error(file.name + ": " + result.error);
-        count++;
-      }
+      const results = await Promise.allSettled(
+        files.map(async (file) => {
+          const fd = new FormData();
+          fd.set("parentId", saved.id);
+          fd.set("file", file);
+          const response = await fetch("/api/upload", {
+            method: "POST",
+            credentials: "include",
+            headers: { "X-NS-Request": "1" },
+            body: fd,
+          });
+          const result: any = await response.json();
+          if (!response.ok) throw new Error(file.name + ": " + result.error);
+          count++;
+          setMessage(`Đang tải tệp ${count}/${files.length}…`);
+          return file;
+        }),
+      );
+      const failed = results.flatMap((result, index) =>
+        result.status === "rejected"
+          ? [files[index].name + ": " + result.reason.message]
+          : [],
+      );
+      if (failed.length)
+        throw new Error(
+          `Đã gắn ${count}/${files.length} tệp. Chưa tải được: ${failed.join("; ")}. Chọn lại các tệp này để thử lại.`,
+        );
       setMessage(
-        "Đã tải " + count + " tệp vào bản nháp. Bấm Gửi báo cáo để gửi.",
+        `Đã gắn ${count} tệp vào báo cáo nháp. Bấm “Gửi báo cáo” để chuyển cả nội dung và tệp sang hàng chờ phê duyệt.`,
       );
     } catch (e: any) {
       setError((count ? "Đã tải " + count + " tệp. " : "") + e.message);
@@ -229,7 +460,9 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
           const fresh = await load();
           setForm(fresh.reports.find((r: any) => r.id === saved.id) || saved);
           if (fresh?.tasks && task) {
-            const updated = fresh.tasks.find((item: any) => item.id === task.id);
+            const updated = fresh.tasks.find(
+              (item: any) => item.id === task.id,
+            );
             if (updated) setTask(updated);
           }
         } catch (e: any) {
@@ -261,16 +494,181 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
   const nav = [
     ["dashboard", "Tổng quan"],
     ["tasks", "Nhiệm vụ được giao"],
-    ["reports", "Báo cáo đã gửi"],
+    ["reports", "Lịch sử báo cáo"],
     ["notices", "Thông báo – Nhắc việc"],
     ["account", "Tài khoản"],
   ];
-  const reminders = tasks.filter(
-    (t: any) =>
-      ["soon", "overdue"].includes(deadlineState(t)) ||
-      ["missing", "returned"].includes(reportingStatus(t)) ||
-      reports.some((r: any) => r.taskId === t.id && r.state === "returned"),
+  const portalNotices = data.notices
+    .filter(
+      (n: any) =>
+        n.category === "admin-directive" ||
+        periodTasks.some((t: any) => t.id === n.taskId),
+    )
+    .sort((a: any, b: any) => {
+      const priority =
+        noticePriority(a.title).rank - noticePriority(b.title).rank;
+      return priority || b.updated.localeCompare(a.updated);
+    });
+  const adminRequests = portalNotices.filter(isAdminRequestNotice);
+  const directiveNotices = adminRequests.filter(
+    (notice: any) =>
+      notice.category === "admin-directive" &&
+      !notice.readBy?.includes(user.id),
   );
+  useEffect(() => {
+    const current = new Set(
+      data.notices
+        .filter((notice: any) => notice.category === "admin-directive")
+        .map((notice: any) => notice.id),
+    );
+    if (seenDirectiveIds.current === null) {
+      seenDirectiveIds.current = current;
+      return;
+    }
+    const seen = seenDirectiveIds.current;
+    const newNotices = data.notices.filter(
+      (notice: any) =>
+        notice.category === "admin-directive" &&
+        !seen?.has(notice.id) &&
+        !notice.readBy?.includes(user.id),
+    );
+    for (const notice of newNotices) {
+      toast("Có chỉ đạo nhắc việc mới", {
+        description: notice.message,
+        duration: 8000,
+      });
+      seen?.add(notice.id);
+    }
+    seenDirectiveIds.current = current;
+  }, [data.notices, user.id]);
+  const requestTaskIds = new Set(
+    adminRequests
+      .filter(
+        (notice: any) =>
+          notice.category === "report-supplement" ||
+          /^báo cáo cần bổ sung/i.test(notice.title || ""),
+      )
+      .map((notice: any) => notice.taskId),
+  );
+  const reminders = tasks
+    .filter((t: any) => {
+      if (!user.units.includes(t.unit)) return false;
+      const reportStatus = reportingStatus(t);
+      const returnedReportAlreadyShown =
+        reportStatus === "returned" && requestTaskIds.has(t.id);
+      return (
+        ["soon", "overdue"].includes(deadlineState(t)) ||
+        ["missing", "late"].includes(reportStatus) ||
+        (reportStatus === "returned" && !returnedReportAlreadyShown) ||
+        (reports.some(
+          (r: any) => r.taskId === t.id && r.state === "returned",
+        ) &&
+          !returnedReportAlreadyShown)
+      );
+    })
+    .sort((a: any, b: any) => {
+      const rank = (t: any) => {
+        const state = reportingStatus(t);
+        if (deadlineState(t) === "overdue") return 0;
+        if (state === "missing") return 1;
+        if (state === "returned") return 2;
+        if (state === "late") return 3;
+        return 4;
+      };
+      return rank(a) - rank(b) || a.due.localeCompare(b.due);
+    });
+  const leadRequests = adminRequests.filter((notice: any) => {
+    const noticeTask = periodTasks.find((t: any) => t.id === notice.taskId);
+    return noticeTask && user.units.includes(noticeTask.unit);
+  });
+  const partnerRequests = adminRequests.filter((notice: any) => {
+    const noticeTask = periodTasks.find((t: any) => t.id === notice.taskId);
+    return (
+      noticeTask &&
+      !user.units.includes(noticeTask.unit) &&
+      coordinationUnits(user, noticeTask).length > 0
+    );
+  });
+  const leadNotices = portalNotices.filter((notice: any) => {
+    const noticeTask = periodTasks.find((t: any) => t.id === notice.taskId);
+    return (
+      noticeTask &&
+      user.units.includes(noticeTask.unit) &&
+      !isAdminRequestNotice(notice)
+    );
+  });
+  const partnerNotices = portalNotices.filter((notice: any) => {
+    const noticeTask = periodTasks.find((t: any) => t.id === notice.taskId);
+    return (
+      noticeTask &&
+      !user.units.includes(noticeTask.unit) &&
+      coordinationUnits(user, noticeTask).length > 0 &&
+      !isAdminRequestNotice(notice)
+    );
+  });
+  const unreadNoticeCount = portalNotices.filter(
+    (notice: any) => !notice.readBy?.includes(user.id),
+  ).length;
+  const renderNotice = (n: any) => {
+    const priority = noticePriority(n.title);
+    const noticeTask = periodTasks.find((t: any) => t.id === n.taskId);
+    return (
+      <article className="panel unit-task-card" key={n.id}>
+        <span
+          className={"notice-priority-tag notice-priority-" + priority.tone}
+        >
+          {priority.label}
+        </span>
+        <h2
+          className={
+            "notice-priority-text notice-priority-text-" + priority.tone
+          }
+        >
+          {assignmentNoticeTitle(n.title)}
+        </h2>
+        <small className="muted">
+          {dates(n.updated)} ·{" "}
+          {n.readBy?.includes(user.id) ? "Đã đọc" : "Chưa đọc"}
+        </small>
+        <div className="actions mt-3">
+          {noticeTask && (
+            <button
+              className="btn small"
+              onClick={() => {
+                const report = reports.find(
+                  (item: any) =>
+                    item.taskId === noticeTask.id && item.state !== "draft",
+                );
+                openTask(noticeTask, report, !active(noticeTask));
+              }}
+            >
+              {priority.tone === "coordination"
+                ? "Mở ý kiến phối hợp"
+                : n.category === "report-supplement"
+                  ? "Mở báo cáo bổ sung"
+                  : isAdminRequestNotice(n)
+                    ? "Mở yêu cầu"
+                    : "Mở nhiệm vụ"}
+            </button>
+          )}
+          {!n.readBy?.includes(user.id) && (
+            <button
+              className="btn small"
+              onClick={async () => {
+                try {
+                  await markNoticeRead(n.id);
+                } catch (e: any) {
+                  setError(e.message);
+                }
+              }}
+            >
+              Đã đọc
+            </button>
+          )}
+        </div>
+      </article>
+    );
+  };
   return (
     <div
       className="unit-portal"
@@ -315,6 +713,9 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
             }}
           >
             {label}
+            {key === "notices" && unreadNoticeCount > 0 && (
+              <b className="unit-notice-count">{unreadNoticeCount}</b>
+            )}
           </button>
         ))}
       </nav>
@@ -330,7 +731,7 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
                   : tab === "reports"
                     ? "Bản nháp, báo cáo đã gửi và các yêu cầu bổ sung."
                     : tab === "notices"
-                      ? "Theo dõi riêng thời hạn nhiệm vụ và thời hạn báo cáo."
+                      ? "Yêu cầu báo cáo và yêu cầu bổ sung từ trang chính được ưu tiên hiển thị tại đây."
                       : "Thông tin đăng nhập và mật khẩu của bạn."}
             </p>
           </div>
@@ -361,9 +762,8 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
         )}
         {tab === "dashboard" && (
           <ReportingDashboard
-            tasks={periodTasks}
-            reports={reports}
-            units={data.units.filter((u: any) => user.units.includes(u.id))}
+            tasks={leadTasks}
+            partnerTasks={partnerTasks}
             reportingStatus={reportingStatus}
             onFilter={showTasks}
             onTask={(t: any) => openTask(t, undefined, !active(t))}
@@ -379,6 +779,8 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
                   : (
                       {
                         done: "Đã hoàn thành",
+                        lead: "Nhiệm vụ chủ trì",
+                        partner: "Nhiệm vụ phối hợp",
                         active: "Đang thực hiện",
                         overdue: "Quá hạn nhiệm vụ",
                         soon: "Sắp đến hạn",
@@ -398,77 +800,58 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-            <div className="unit-task-list unit-task-grid">
-              {visibleTasks.map((t: any) => (
-                <article className="panel unit-task-card" key={t.id}>
-                  <h2>{t.title}</h2>
-                  <p className="muted">
-                    Chủ trì: {unitName(t.unit)}
-                    {!user.units.includes(t.unit)
-                      ? " · Đơn vị bạn phối hợp thực hiện"
-                      : ""}
-                  </p>
-                  <div className="unit-task-meta">
-                    <span>
-                      <b>Hạn hoàn thành:</b> {dates(t.due)}{" "}
-                      {deadlineState(t) === "overdue" && (
-                        <em className="badge red">Quá hạn nhiệm vụ</em>
-                      )}
+            <div className="unit-role-task-columns">
+              {(taskFilter !== "partner" && (
+                <section className="unit-role-task-card unit-role-lead">
+                  <header>
+                    <div>
+                      <h2>Nhiệm vụ chủ trì</h2>
+                      <p>Đơn vị cập nhật tiến độ và gửi báo cáo.</p>
+                    </div>
+                    <span
+                      aria-label={`${visibleLeadTasks.length} nhiệm vụ chủ trì`}
+                    >
+                      {visibleLeadTasks.length}
                     </span>
-                    {Number(t.target) > 0 && (
-                      <span>
-                        <b>Chỉ tiêu:</b> {t.target} {t.measure}
-                      </span>
+                  </header>
+                  <div className="unit-task-list unit-task-grid">
+                    {visibleLeadTasks.map(renderTaskCard)}
+                    {!visibleLeadTasks.length && (
+                      <p className="panel unit-empty">
+                        Không có nhiệm vụ chủ trì phù hợp trong kỳ này.
+                      </p>
                     )}
-                    <span>
-                      <b>Thực hiện:</b> {stateNames[t.status]} ·{" "}
-                      {t.progress || 0}% đã xác nhận
-                    </span>
-                    <span>
-                      <b>Báo cáo:</b> {reportingNames[reportingStatus(t)]}
-                    </span>
                   </div>
-                  <button
-                    type="button"
-                    className={
-                      "unit-progress-link " +
-                      (deadlineState(t) === "overdue" ? "overdue" : "")
-                    }
-                    aria-label={"Xem phần việc và báo cáo: " + t.title}
-                    onClick={() => openTask(t, undefined, !active(t))}
-                  >
-                    <span className="unit-progress-caption">
-                      <b>Tiến độ đã xác nhận</b>
-                      <strong>
-                        {Math.min(100, Math.max(0, Number(t.progress) || 0))}%
-                      </strong>
+                </section>
+              )) ||
+                null}
+              {(taskFilter === "all" || taskFilter === "partner") && (
+                <section className="unit-role-task-card unit-role-partner">
+                  <header>
+                    <div>
+                      <h2>Nhiệm vụ phối hợp</h2>
+                      <p>
+                        Theo dõi tiến độ của chủ trì; gửi thông tin khi được yêu
+                        cầu.
+                      </p>
+                    </div>
+                    <span
+                      aria-label={`${visiblePartnerTasks.length} nhiệm vụ phối hợp`}
+                    >
+                      {visiblePartnerTasks.length}
                     </span>
-                    <progress
-                      max={100}
-                      value={Math.min(
-                        100,
-                        Math.max(0, Number(t.progress) || 0),
-                      )}
-                      aria-label="Tiến độ nhiệm vụ đã xác nhận"
-                    />
-                    <span className="unit-progress-hint">
-                      Bấm để xem phần việc và cập nhật báo cáo →
-                    </span>
-                  </button>
-                  <button
-                    className="btn primary"
-                    onClick={() => openTask(t, undefined, !active(t))}
-                  >
-                    {active(t) ? "Cập nhật báo cáo" : "Xem báo cáo"}
-                  </button>
-                </article>
-              ))}
+                  </header>
+                  <div className="unit-task-list unit-task-grid">
+                    {visiblePartnerTasks.map(renderTaskCard)}
+                    {!visiblePartnerTasks.length && (
+                      <p className="panel unit-empty">
+                        Không có nhiệm vụ phối hợp phù hợp trong kỳ này.
+                      </p>
+                    )}
+                  </div>
+                </section>
+              )}
             </div>
-            {!visibleTasks.length && (
-              <p className="panel unit-empty">
-                Không có nhiệm vụ phù hợp trong kỳ này.
-              </p>
-            )}
           </>
         )}
         {tab === "reports" && (
@@ -546,60 +929,250 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
           </div>
         )}
         {tab === "notices" && (
-          <div className="unit-task-list">
-            {reminders.map((t: any) => (
-              <article className="panel unit-task-card" key={t.id}>
-                <h2>{t.title}</h2>
-                {["soon", "overdue"].includes(deadlineState(t)) && (
-                  <p>
-                    <span
-                      className={
-                        "badge " +
-                        (deadlineState(t) === "overdue" ? "red" : "amber")
-                      }
-                    >
-                      {deadlineState(t) === "overdue"
-                        ? "Quá hạn nhiệm vụ"
-                        : "Sắp đến hạn nhiệm vụ"}
-                    </span>{" "}
-                    Hạn: {dates(t.due)}
-                  </p>
-                )}
-                <p>
-                  <b>Báo cáo:</b> {reportingNames[reportingStatus(t)]} · Hạn kỳ
-                  này:{" "}
-                  {dates(reportWindow(t, new Date(), data.settings).deadline)}
-                </p>
-                {reports
-                  .filter(
-                    (r: any) => r.taskId === t.id && r.state === "returned",
-                  )
-                  .map((r: any) => (
-                    <p className="hint amber" key={r.id}>
-                      {r.reason || "Cần bổ sung báo cáo"}
+          <>
+            {directiveNotices.length > 0 && (
+              <section className="panel mb-4">
+                <div className="panel-head">
+                  <div>
+                    <h2>Chỉ đạo từ trang chính</h2>
+                    <p className="muted">
+                      Nội dung áp dụng cho đơn vị của bạn.
                     </p>
+                  </div>
+                  <span className="badge amber">
+                    {
+                      directiveNotices.filter(
+                        (notice: any) => !notice.readBy?.includes(user.id),
+                      ).length
+                    }{" "}
+                    chưa đọc
+                  </span>
+                </div>
+                <div className="panel-body">
+                  {directiveNotices.map((notice: any) => (
+                    <article
+                      className={
+                        "panel unit-task-card unit-directive-card" +
+                        (notice.readBy?.includes(user.id)
+                          ? ""
+                          : " unit-directive-unread")
+                      }
+                      key={notice.id}
+                    >
+                      <span className="notice-priority-tag notice-priority-review">
+                        {notice.readBy?.includes(user.id)
+                          ? "Đã đọc"
+                          : "Chỉ đạo mới"}
+                      </span>
+                      <h3 className="mt-2">Chỉ đạo nhắc việc</h3>
+                      <p className="whitespace-pre-wrap">{notice.message}</p>
+                      <small className="muted">{dates(notice.updated)}</small>
+                      {!notice.readBy?.includes(user.id) && (
+                        <div className="actions mt-3">
+                          <button
+                            className="btn small"
+                            onClick={async () => {
+                              try {
+                                await markNoticeRead(notice.id);
+                              } catch (e: any) {
+                                setError(e.message);
+                              }
+                            }}
+                          >
+                            Đã đọc
+                          </button>
+                        </div>
+                      )}
+                    </article>
                   ))}
-                <button className="btn primary" onClick={() => openTask(t)}>
-                  Xem / cập nhật báo cáo
-                </button>
-              </article>
-            ))}
-            {data.notices
-              .filter((n: any) => tasks.some((t: any) => t.id === n.taskId))
-              .sort((a: any, b: any) => b.updated.localeCompare(a.updated))
-              .map((n: any) => (
-                <article className="panel unit-task-card" key={n.id}>
-                  <p>{assignmentNoticeTitle(n.title)}</p>
-                  <small className="muted">{dates(n.updated)}</small>
-                </article>
-              ))}
-            {!reminders.length && (
-              <p className="panel unit-empty">
-                Không có nhiệm vụ sắp đến hạn, quá hạn hoặc cần bổ sung trong kỳ
-                này.
-              </p>
+                </div>
+              </section>
             )}
-          </div>
+            <div className="unit-reminder-columns">
+              <section className="unit-role-reminder-card unit-role-lead">
+                <header>
+                  <div>
+                    <h2>Nhiệm vụ chủ trì</h2>
+                    <p>
+                      Đơn vị chịu trách nhiệm cập nhật tiến độ và gửi báo cáo.
+                    </p>
+                  </div>
+                  <span aria-label={`${leadTasks.length} nhiệm vụ chủ trì`}>
+                    {leadTasks.length}
+                  </span>
+                </header>
+                <small className="unit-role-reminder-note">
+                  {reminders.length} nhiệm vụ cần chú ý về thời hạn hoặc báo cáo
+                </small>
+                <div className="unit-task-list">
+                  {leadRequests.length > 0 ? (
+                    <div className="unit-role-notice-group unit-role-request-group">
+                      <h3>Yêu cầu từ trang chính ({leadRequests.length})</h3>
+                      {leadRequests.map(renderNotice)}
+                    </div>
+                  ) : (
+                    <p className="unit-role-reminder-note">
+                      Chưa có yêu cầu báo cáo hoặc bổ sung mới từ trang chính.
+                    </p>
+                  )}
+                  {reminders.map((t: any) => {
+                    const reportStatus = reportingStatus(t);
+                    const overdue = deadlineState(t) === "overdue";
+                    const tone =
+                      overdue ||
+                      reportStatus === "missing" ||
+                      reportStatus === "returned"
+                        ? "high"
+                        : "review";
+                    const label = overdue
+                      ? "Quá hạn nhiệm vụ"
+                      : reportStatus === "missing"
+                        ? "Chậm báo cáo"
+                        : reportStatus === "returned"
+                          ? "Cần bổ sung"
+                          : reportStatus === "late"
+                            ? "Đã gửi chậm"
+                            : "Sắp đến hạn";
+                    return (
+                      <article className="panel unit-task-card" key={t.id}>
+                        <span
+                          className={
+                            "notice-priority-tag notice-priority-" + tone
+                          }
+                        >
+                          {label}
+                        </span>
+                        <h2
+                          className={
+                            "notice-priority-text notice-priority-text-" + tone
+                          }
+                        >
+                          {t.title}
+                        </h2>
+                        {["soon", "overdue"].includes(deadlineState(t)) && (
+                          <p>
+                            <span
+                              className={
+                                "badge " +
+                                (deadlineState(t) === "overdue"
+                                  ? "red"
+                                  : "amber")
+                              }
+                            >
+                              {deadlineState(t) === "overdue"
+                                ? "Quá hạn nhiệm vụ"
+                                : "Sắp đến hạn nhiệm vụ"}
+                            </span>{" "}
+                            Hạn: {dates(t.due)}
+                          </p>
+                        )}
+                        <p>
+                          <b>Báo cáo:</b> {reportingNames[reportingStatus(t)]} ·
+                          Hạn kỳ này:{" "}
+                          {dates(
+                            reportWindow(t, new Date(), data.settings).deadline,
+                          )}
+                        </p>
+                        {reports
+                          .filter(
+                            (r: any) =>
+                              r.taskId === t.id && r.state === "returned",
+                          )
+                          .map((r: any) => (
+                            <p className="hint amber" key={r.id}>
+                              {r.reason || "Cần bổ sung báo cáo"}
+                            </p>
+                          ))}
+                        <button
+                          className="btn primary"
+                          onClick={() => openTask(t, undefined, !active(t))}
+                        >
+                          Xem / cập nhật báo cáo
+                        </button>
+                      </article>
+                    );
+                  })}
+                  {leadNotices.length > 0 && (
+                    <div className="unit-role-notice-group">
+                      <h3>Thông báo liên quan ({leadNotices.length})</h3>
+                      {leadNotices.map(renderNotice)}
+                    </div>
+                  )}
+                  {!reminders.length &&
+                    !leadNotices.length &&
+                    !leadRequests.length && (
+                      <p className="panel unit-empty">
+                        Chưa có nhiệm vụ chủ trì cần nhắc việc trong kỳ này.
+                      </p>
+                    )}
+                </div>
+              </section>
+              <section className="unit-role-reminder-card unit-role-partner">
+                <header>
+                  <div>
+                    <h2>Nhiệm vụ phối hợp</h2>
+                    <p>
+                      Theo dõi tiến độ; chỉ gửi thông tin khi nhiệm vụ yêu cầu.
+                    </p>
+                  </div>
+                  <span aria-label={`${partnerTasks.length} nhiệm vụ phối hợp`}>
+                    {partnerTasks.length}
+                  </span>
+                </header>
+                <small className="unit-role-reminder-note">
+                  Không tính là báo cáo chủ trì của đơn vị
+                </small>
+                <div className="unit-task-list">
+                  {partnerRequests.length > 0 && (
+                    <div className="unit-role-notice-group unit-role-request-group">
+                      <h3>Yêu cầu từ trang chính ({partnerRequests.length})</h3>
+                      {partnerRequests.map(renderNotice)}
+                    </div>
+                  )}
+                  {partnerTasks.map((t: any) => (
+                    <article
+                      className="panel unit-task-card"
+                      key={"partner-" + t.id}
+                    >
+                      <span className="notice-priority-tag notice-priority-coordination">
+                        Phối hợp
+                      </span>
+                      <h2>{t.title}</h2>
+                      <p>
+                        Đơn vị chủ trì: <b>{unitName(t.unit)}</b>
+                      </p>
+                      <p>
+                        Tiến độ chủ trì cập nhật: <b>{t.progress || 0}%</b> ·
+                        Trạng thái: <b>{stateNames[t.status] || t.status}</b>
+                      </p>
+                      <p>Thời hạn: {dates(t.due)}</p>
+                      <button
+                        className="btn"
+                        onClick={() => openTask(t, undefined, !active(t))}
+                      >
+                        {requiresPartnerUpdate(t)
+                          ? "Xem tiến độ / gửi thông tin"
+                          : "Xem tiến độ"}
+                      </button>
+                    </article>
+                  ))}
+                  {partnerNotices.length > 0 && (
+                    <div className="unit-role-notice-group">
+                      <h3>Thông báo liên quan ({partnerNotices.length})</h3>
+                      {partnerNotices.map(renderNotice)}
+                    </div>
+                  )}
+                  {!partnerTasks.length &&
+                    !partnerNotices.length &&
+                    !partnerRequests.length && (
+                      <p className="panel unit-empty">
+                        Không có nhiệm vụ phối hợp trong kỳ này.
+                      </p>
+                    )}
+                </div>
+              </section>
+            </div>
+          </>
         )}
         {tab === "account" && (
           <section className="panel unit-task-card">
@@ -723,91 +1296,298 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
               {form.reason && (
                 <p className="hint amber">Yêu cầu bổ sung: {form.reason}</p>
               )}
-              <fieldset disabled={readOnly || busy}>
-                {reportingUnits(user, task).length > 1 && !form.id && (
-                  <label className="form-field">
-                    <span>Đơn vị báo cáo</span>
-                    <select
-                      value={form.unit}
-                      onChange={(e) => change("unit", e.target.value)}
-                    >
-                      {reportingUnits(user, task).map((id: string) => (
-                        <option value={id} key={id}>
-                          {unitName(id)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                <p className="muted">Báo cáo của: {unitName(form.unit)}</p>
-                <label className="form-field">
-                  <span>KẾT QUẢ THỰC HIỆN *</span>
-                  <textarea
-                    rows={8}
-                    maxLength={100000}
-                    placeholder="Trình bày việc đã làm, kết quả đạt được, công việc đang triển khai và nội dung chưa hoàn thành…"
-                    value={form.result || ""}
-                    onChange={(e) => change("result", e.target.value)}
-                  />
-                </label>
-                {Number(task.target) > 0 && (
-                  <section className="unit-target">
-                    <label className="form-field">
-                      <span>
-                        Số lượng đã thực hiện ({task.measure || "đơn vị"})
+              {!user.units.includes(task.unit) && (
+                <section className="unit-coordination-panel">
+                  <h2>Thông tin phối hợp</h2>
+                  <p>
+                    Đơn vị nhận thông tin: <b>{unitName(task.unit)}</b>
+                  </p>
+                  <p>
+                    Tiến độ do đơn vị chủ trì cập nhật:{" "}
+                    <b>{task.progress || 0}%</b>
+                    {form.result && (
+                      <span className="block mt-1 whitespace-pre-wrap">
+                        {form.result}
                       </span>
+                    )}
+                  </p>
+                  <div className="unit-coordination-history">
+                    {coordinationComments
+                      .filter((comment: any) => comment.type !== "direction")
+                      .sort((a: any, b: any) =>
+                        b.updated.localeCompare(a.updated),
+                      )
+                      .map((comment: any) => (
+                        <article key={comment.id}>
+                          <b>{comment.unitName || comment.author}</b>
+                          <small>{dates(comment.updated)}</small>
+                          <p className="whitespace-pre-wrap">{comment.text}</p>
+                          {!!comment.files?.length && (
+                            <div className="unit-coordination-files">
+                              {comment.files.map((file: any) => (
+                                <a
+                                  className="btn small"
+                                  key={file.id}
+                                  href={`/api/file?id=${encodeURIComponent(file.id)}`}
+                                  download={file.name}
+                                  title={`Tải ${file.name}`}
+                                >
+                                  <Download size={14} /> Tải về
+                                  <span className="max-w-[240px] truncate">
+                                    {file.name}
+                                  </span>
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                        </article>
+                      ))}
+                    {!coordinationComments.some(
+                      (comment: any) => comment.type !== "direction",
+                    ) && <p className="muted">Chưa có thông tin phối hợp.</p>}
+                  </div>
+                  {requiresPartnerUpdate(task) &&
+                    coordinationUnits(user, task).length > 0 && (
+                      <div className="unit-coordination-compose">
+                        {coordinationUnits(user, task).length > 1 && (
+                          <label className="form-field">
+                            <span>Đơn vị phối hợp gửi thông tin</span>
+                            <select
+                              value={coordinationUnit}
+                              onChange={(e) =>
+                                setCoordinationUnit(e.target.value)
+                              }
+                            >
+                              {coordinationUnits(user, task).map(
+                                (unitId: string) => (
+                                  <option value={unitId} key={unitId}>
+                                    {unitName(unitId)}
+                                  </option>
+                                ),
+                              )}
+                            </select>
+                          </label>
+                        )}
+                        <label className="form-field">
+                          <span>Thông tin gửi đơn vị chủ trì</span>
+                          <textarea
+                            rows={4}
+                            value={coordinationText}
+                            onChange={(e) =>
+                              setCoordinationText(e.target.value)
+                            }
+                            placeholder="Nêu kết quả phối hợp, nội dung đã thực hiện hoặc khó khăn cần đơn vị chủ trì tổng hợp…"
+                          />
+                        </label>
+                        <label className="form-field">
+                          <span>Tệp gửi kèm (tối đa 3 tệp, 25 MB/tệp)</span>
+                          <input
+                            type="file"
+                            multiple
+                            accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp,.mp4,.webm,.zip,.rar,.7z"
+                            onChange={(event) =>
+                              setCoordinationFiles(
+                                Array.from(event.target.files || []),
+                              )
+                            }
+                          />
+                          <small className="muted">
+                            Có thể gửi nội dung đánh trực tiếp, tệp đính kèm
+                            hoặc cả hai.
+                          </small>
+                          {!!coordinationFiles.length && (
+                            <small>
+                              {coordinationFiles
+                                .map((file) => file.name)
+                                .join(" · ")}
+                            </small>
+                          )}
+                        </label>
+                        <button
+                          className="btn primary"
+                          disabled={
+                            busy ||
+                            (!coordinationPendingId &&
+                              !coordinationText.trim() &&
+                              !coordinationFiles.length)
+                          }
+                          onClick={sendCoordination}
+                        >
+                          {coordinationPendingId
+                            ? "Gửi tiếp tệp còn lại"
+                            : `Gửi cho ${unitName(task.unit)}`}
+                        </button>
+                      </div>
+                    )}
+                  {!requiresPartnerUpdate(task) && (
+                    <p className="muted text-sm">
+                      Nhiệm vụ này chưa yêu cầu đơn vị phối hợp gửi thông tin.
+                    </p>
+                  )}
+                </section>
+              )}
+              {user.units.includes(task.unit) &&
+                requiresPartnerUpdate(task) &&
+                !!task.partners?.length && (
+                  <section className="unit-coordination-panel">
+                    <h2>Thông tin từ đơn vị phối hợp</h2>
+                    <p>
+                      Các ý kiến dưới đây được gửi trực tiếp về{" "}
+                      <b>{unitName(task.unit)}</b> để tổng hợp.
+                    </p>
+                    <div className="unit-coordination-history">
+                      {coordinationComments
+                        .filter((comment: any) => comment.type !== "direction")
+                        .sort((a: any, b: any) =>
+                          b.updated.localeCompare(a.updated),
+                        )
+                        .map((comment: any) => (
+                          <article key={comment.id}>
+                            <b>{comment.unitName || comment.author}</b>
+                            <small>{dates(comment.updated)}</small>
+                            <p className="whitespace-pre-wrap">
+                              {comment.text}
+                            </p>
+                            {!!comment.files?.length && (
+                              <div className="unit-coordination-files">
+                                {comment.files.map((file: any) => (
+                                  <a
+                                    className="btn small"
+                                    key={file.id}
+                                    href={`/api/file?id=${encodeURIComponent(file.id)}`}
+                                    download={file.name}
+                                    title={`Tải ${file.name}`}
+                                  >
+                                    <Download size={14} /> Tải về
+                                    <span className="max-w-[240px] truncate">
+                                      {file.name}
+                                    </span>
+                                  </a>
+                                ))}
+                              </div>
+                            )}
+                            {comment.text?.trim() &&
+                              canReport(user, task) &&
+                              !readOnly && (
+                                <button
+                                  className="btn mt-2"
+                                  type="button"
+                                  onClick={() =>
+                                    includeCoordinationText(comment)
+                                  }
+                                >
+                                  Chèn nội dung vào báo cáo
+                                </button>
+                              )}
+                          </article>
+                        ))}
+                      {!coordinationComments.some(
+                        (comment: any) => comment.type !== "direction",
+                      ) && (
+                        <p className="muted">
+                          Chưa có thông tin từ các đơn vị phối hợp.
+                        </p>
+                      )}
+                    </div>
+                  </section>
+                )}
+              {canReport(user, task) && (
+                <fieldset disabled={readOnly || busy}>
+                  {reportingUnits(user, task).length > 1 && !form.id && (
+                    <label className="form-field">
+                      <span>Đơn vị báo cáo</span>
+                      <select
+                        value={form.unit}
+                        onChange={(e) => change("unit", e.target.value)}
+                      >
+                        {reportingUnits(user, task).map((id: string) => (
+                          <option value={id} key={id}>
+                            {unitName(id)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <p className="muted">Báo cáo của: {unitName(form.unit)}</p>
+                  <label className="form-field">
+                    <span>KẾT QUẢ THỰC HIỆN *</span>
+                    <textarea
+                      rows={8}
+                      maxLength={100000}
+                      placeholder="Trình bày việc đã làm, kết quả đạt được, công việc đang triển khai và nội dung chưa hoàn thành…"
+                      value={form.result || ""}
+                      onChange={(e) => change("result", e.target.value)}
+                    />
+                  </label>
+                  {Number(task.target) > 0 &&
+                    !isPercentageProgressTask(task) && (
+                      <section className="unit-target">
+                        <label className="form-field">
+                          <span>
+                            Số lượng đã thực hiện ({task.measure || "đơn vị"})
+                          </span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={form.quantity ?? 0}
+                            onChange={(e) => change("quantity", e.target.value)}
+                          />
+                        </label>
+                        <p>
+                          <b>
+                            {Number(form.quantity || 0).toLocaleString("vi-VN")}
+                            /{Number(task.target).toLocaleString("vi-VN")}{" "}
+                            {task.measure}
+                          </b>{" "}
+                          · Đạt{" "}
+                          <b>
+                            {(
+                              (Number(form.quantity || 0) / task.target) *
+                              100
+                            ).toLocaleString("vi-VN", {
+                              maximumFractionDigits: 1,
+                            })}
+                            %
+                          </b>
+                        </p>
+                      </section>
+                    )}
+                  {(Number(task.target) <= 0 ||
+                    isPercentageProgressTask(task)) && (
+                    <label className="form-field">
+                      <span>Tiến độ nội dung đã thực hiện (%)</span>
                       <input
                         type="number"
                         min="0"
                         step="any"
-                        value={form.quantity ?? 0}
-                        onChange={(e) => change("quantity", e.target.value)}
+                        value={form.progress ?? 0}
+                        onChange={(e) => change("progress", e.target.value)}
                       />
+                      <small className="muted">
+                        Nhập tỷ lệ phần trăm nội dung đã thực hiện; có thể vượt
+                        100% nếu kết quả cao hơn kế hoạch.
+                      </small>
                     </label>
-                    <p>
-                      <b>
-                        {Number(form.quantity || 0).toLocaleString("vi-VN")}/
-                        {Number(task.target).toLocaleString("vi-VN")}{" "}
-                        {task.measure}
-                      </b>{" "}
-                      · Đạt{" "}
-                      <b>
-                        {(
-                          (Number(form.quantity || 0) / task.target) *
-                          100
-                        ).toLocaleString("vi-VN", { maximumFractionDigits: 1 })}
-                        %
-                      </b>
-                    </p>
-                  </section>
-                )}
-                <label className="form-field">
-                  <span>Tiến độ thực hiện (%)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={form.progress ?? 0}
-                    onChange={(e) => change("progress", e.target.value)}
-                  />
-                </label>
-                <label className="form-field">
-                  <span>KHÓ KHĂN, VƯỚNG MẮC (NẾU CÓ)</span>
-                  <textarea
-                    rows={3}
-                    value={form.difficulty || ""}
-                    onChange={(e) => change("difficulty", e.target.value)}
-                  />
-                </label>
-                <label className="form-field">
-                  <span>ĐỀ XUẤT, KIẾN NGHỊ (NẾU CÓ)</span>
-                  <textarea
-                    rows={3}
-                    value={form.proposal || ""}
-                    onChange={(e) => change("proposal", e.target.value)}
-                  />
-                </label>
-              </fieldset>
+                  )}
+                  <label className="form-field">
+                    <span>KHÓ KHĂN, VƯỚNG MẮC (NẾU CÓ)</span>
+                    <textarea
+                      rows={3}
+                      value={form.difficulty || ""}
+                      onChange={(e) => change("difficulty", e.target.value)}
+                    />
+                  </label>
+                  <label className="form-field">
+                    <span>ĐỀ XUẤT, KIẾN NGHỊ (NẾU CÓ)</span>
+                    <textarea
+                      rows={3}
+                      value={form.proposal || ""}
+                      onChange={(e) => change("proposal", e.target.value)}
+                    />
+                  </label>
+                </fieldset>
+              )}
               <section>
                 <h2>Minh chứng</h2>
                 <p className="muted">
@@ -859,6 +1639,14 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
                               ? "Xem trước"
                               : "Tải để xem"}
                           </a>
+                          <a
+                            className="btn small"
+                            href={`/api/file?id=${encodeURIComponent(f.id)}`}
+                            download={f.name}
+                            title={`Tải ${f.name} về máy`}
+                          >
+                            <Download size={14} /> Tải về
+                          </a>
                           {!readOnly &&
                             form.state === "draft" &&
                             !form.everSubmitted &&
@@ -886,13 +1674,14 @@ export function ReportingPortal({ data, user, load, api, onLogout }: any) {
                     </summary>
                     {legacy.map((f: any) => (
                       <a
-                        className="block underline"
+                        className="btn small mt-2"
                         key={f.id}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        href={"/api/file?id=" + f.id}
+                        href={`/api/file?id=${encodeURIComponent(f.id)}`}
+                        download={f.name}
+                        title={`Tải ${f.name} về máy`}
                       >
-                        {f.name}
+                        <Download size={14} /> Tải về
+                        <span className="max-w-[280px] truncate">{f.name}</span>
                       </a>
                     ))}
                   </details>

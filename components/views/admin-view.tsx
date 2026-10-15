@@ -34,6 +34,7 @@ import {
   Btn,
   roleNames,
   groups,
+  orderedGroups,
   has,
   fulltime,
   api,
@@ -91,7 +92,9 @@ export function AdminView({ initialTab }: { initialTab?: string }) {
     };
   }, [unitToDelete, data]);
 
-  const activeTab = initialTab || adminTab || "profile";
+  const activeTab = has(user, "admin", "tech")
+    ? initialTab || adminTab || "units"
+    : "profile";
 
   return (
     <Tabs
@@ -113,16 +116,16 @@ export function AdminView({ initialTab }: { initialTab?: string }) {
       }}
     >
       <TabsList className="admin-tabs">
-        <TabsTrigger value="profile">Tài khoản cá nhân</TabsTrigger>
         {has(user, "admin", "tech") && (
           <>
             <TabsTrigger value="units">Cơ quan, đơn vị</TabsTrigger>
             <TabsTrigger value="users">Người dùng & phân quyền</TabsTrigger>
             <TabsTrigger value="settings">Cấu hình</TabsTrigger>
-            <TabsTrigger value="audit">Nhật ký</TabsTrigger>
+            <TabsTrigger value="audit">Lịch sử hoạt động</TabsTrigger>
             <TabsTrigger value="backup">Sao lưu</TabsTrigger>
           </>
         )}
+        <TabsTrigger value="profile">Tài khoản cá nhân</TabsTrigger>
       </TabsList>
       <TabsContent value="profile">
         <section className="panel settings-card">
@@ -180,7 +183,7 @@ export function AdminView({ initialTab }: { initialTab?: string }) {
                 >
                   Tất cả
                 </button>
-                {Array.from(new Set(data.units.map((u: any) => u.group))).map(
+                {orderedGroups(data.units.map((u: any) => u.group)).map(
                   (g: any) => (
                     <button
                       key={g}
@@ -494,46 +497,70 @@ export function AdminView({ initialTab }: { initialTab?: string }) {
                 {deleteDependencies?.hasDependencies ? (
                   <>
                     <p className="text-foreground">
-                      Đơn vị <b>{unitToDelete?.name}</b> đang có <b>{deleteDependencies.total}</b> tài nguyên ràng buộc. Nếu bạn tiếp tục xóa, hệ thống sẽ <b>xóa vĩnh viễn cả đơn vị và toàn bộ tài nguyên đi cùng</b>:
+                      Đơn vị <b>{unitToDelete?.name}</b> đang có{" "}
+                      <b>{deleteDependencies.total}</b> tài nguyên ràng buộc.
+                      Nếu bạn tiếp tục xóa, hệ thống sẽ{" "}
+                      <b>
+                        xóa vĩnh viễn cả đơn vị và toàn bộ tài nguyên đi cùng
+                      </b>
+                      :
                     </p>
                     <div className="rounded-md border border-amber-200 bg-amber-50/70 p-3 text-amber-900 text-xs dark:bg-amber-950/30 dark:border-amber-900/50 dark:text-amber-200 space-y-1">
                       {deleteDependencies.childUnits.length > 0 && (
                         <div>
-                          • <b>{deleteDependencies.childUnits.length}</b> đơn vị cấp dưới trực thuộc:{" "}
-                          {deleteDependencies.childUnits.map((c: any) => c.name).join(", ")}
+                          • <b>{deleteDependencies.childUnits.length}</b> đơn vị
+                          cấp dưới trực thuộc:{" "}
+                          {deleteDependencies.childUnits
+                            .map((c: any) => c.name)
+                            .join(", ")}
                         </div>
                       )}
                       {deleteDependencies.assignedUsers.length > 0 && (
                         <div>
-                          • <b>{deleteDependencies.assignedUsers.length}</b> tài khoản người dùng trực thuộc (tài khoản chỉ thuộc đơn vị này sẽ bị xóa)
+                          • <b>{deleteDependencies.assignedUsers.length}</b> tài
+                          khoản người dùng trực thuộc (tài khoản chỉ thuộc đơn
+                          vị này sẽ bị xóa)
                         </div>
                       )}
                       {deleteDependencies.linkedTasks.length > 0 && (
                         <div>
-                          • <b>{deleteDependencies.linkedTasks.length}</b> nhiệm vụ được giao chủ trì / phối hợp (kèm minh chứng, nhắc việc)
+                          • <b>{deleteDependencies.linkedTasks.length}</b> nhiệm
+                          vụ được giao chủ trì / phối hợp (kèm minh chứng, nhắc
+                          việc)
                         </div>
                       )}
                       {deleteDependencies.linkedReports.length > 0 && (
                         <div>
-                          • <b>{deleteDependencies.linkedReports.length}</b> báo cáo tiến độ và tệp đính kèm liên quan
+                          • <b>{deleteDependencies.linkedReports.length}</b> báo
+                          cáo tiến độ và tệp đính kèm liên quan
                         </div>
                       )}
                     </div>
                     <div className="rounded-md border border-red-200 bg-red-50/70 p-2.5 text-xs text-red-800 dark:bg-red-950/30 dark:border-red-900/50 dark:text-red-200">
-                      ⚠️ <b>Lưu ý quan trọng:</b> Thao tác này sẽ xóa vĩnh viễn đơn vị và tất cả tài nguyên nêu trên khỏi hệ thống và không thể khôi phục.
+                      ⚠️ <b>Lưu ý quan trọng:</b> Thao tác này sẽ xóa vĩnh viễn
+                      đơn vị và tất cả tài nguyên nêu trên khỏi hệ thống và
+                      không thể khôi phục.
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      Nếu bạn chỉ muốn ẩn đơn vị khỏi danh sách giao việc mới mà vẫn bảo toàn các số liệu và lịch sử báo cáo, hãy chọn <b>"Chuyển sang Ngừng sử dụng"</b> thay vì xóa tất cả.
+                      Nếu bạn chỉ muốn ẩn đơn vị khỏi danh sách giao việc mới mà
+                      vẫn bảo toàn các số liệu và lịch sử báo cáo, hãy chọn{" "}
+                      <b>"Chuyển sang Ngừng sử dụng"</b> thay vì xóa tất cả.
                     </p>
                   </>
                 ) : (
                   <>
                     <p className="text-foreground">
-                      Bạn có chắc chắn muốn xóa cơ quan, đơn vị <b>{unitToDelete?.name}</b>{" "}
-                      {unitToDelete?.group ? `(thuộc khối ${unitToDelete.group})` : ""}?
+                      Bạn có chắc chắn muốn xóa cơ quan, đơn vị{" "}
+                      <b>{unitToDelete?.name}</b>{" "}
+                      {unitToDelete?.group
+                        ? `(thuộc khối ${unitToDelete.group})`
+                        : ""}
+                      ?
                     </p>
                     <p className="text-xs text-red-600">
-                      Đơn vị này hiện không có tài nguyên liên kết. Hành động xóa sẽ xóa hoàn toàn đơn vị khỏi danh mục và không thể hoàn tác.
+                      Đơn vị này hiện không có tài nguyên liên kết. Hành động
+                      xóa sẽ xóa hoàn toàn đơn vị khỏi danh mục và không thể
+                      hoàn tác.
                     </p>
                   </>
                 )}
@@ -542,9 +569,7 @@ export function AdminView({ initialTab }: { initialTab?: string }) {
           </DialogHeader>
 
           <div className="form-footer flex justify-end gap-2 mt-4 pt-3 border-t">
-            <Btn onClick={() => setUnitToDelete(null)}>
-              Hủy
-            </Btn>
+            <Btn onClick={() => setUnitToDelete(null)}>Hủy</Btn>
             {deleteDependencies?.hasDependencies && unitToDelete?.active && (
               <Btn
                 onClick={() => {
@@ -561,7 +586,8 @@ export function AdminView({ initialTab }: { initialTab?: string }) {
               danger
               onClick={() => {
                 run(
-                  () => api("unit-delete", { id: unitToDelete.id, cascade: true }),
+                  () =>
+                    api("unit-delete", { id: unitToDelete.id, cascade: true }),
                   deleteDependencies?.hasDependencies
                     ? "Đã xóa đơn vị và toàn bộ tài nguyên đi cùng thành công."
                     : "Đã xóa đơn vị thành công.",
@@ -569,7 +595,9 @@ export function AdminView({ initialTab }: { initialTab?: string }) {
               }}
             >
               <Trash2 />
-              {deleteDependencies?.hasDependencies ? "Xóa đơn vị và tất cả tài nguyên" : "Xác nhận xóa"}
+              {deleteDependencies?.hasDependencies
+                ? "Xóa đơn vị và tất cả tài nguyên"
+                : "Xác nhận xóa"}
             </Btn>
           </div>
         </DialogContent>

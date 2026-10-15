@@ -31,6 +31,13 @@ export const groups = [
   "Lực lượng vũ trang",
   "Thôn, chi bộ",
 ];
+export function orderedGroups(values: string[]) {
+  const available = new Set(values);
+  return [
+    ...groups.filter((group) => available.has(group)),
+    ...Array.from(available).filter((group) => !groups.includes(group)),
+  ];
+}
 export const initialUnits = [
   ["Văn phòng Đảng ủy", 0],
   ["Ban Xây dựng Đảng", 0],
@@ -91,9 +98,7 @@ export function canReport(u: any, t: any) {
   return (
     canSee(u, t) &&
     (office(u) ||
-      (has(u, "editor", "head", "partner") &&
-        (u.units.includes(t.unit) ||
-          t.partners?.some((x: string) => u.units.includes(x)))))
+      (has(u, "editor", "head", "partner") && u.units?.includes(t.unit)))
   );
 }
 export const localDate = (date = new Date()) =>

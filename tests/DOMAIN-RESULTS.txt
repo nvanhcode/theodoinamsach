@@ -1,1 +1,1 @@
-24 domain/time/permission tests passed
+27 domain/time/permission tests passed

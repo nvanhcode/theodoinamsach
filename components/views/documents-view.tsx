@@ -12,7 +12,7 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { useApp } from "@/components/app-context";
-import { Btn, None, fmt, office } from "@/components/common-ui";
+import { Btn, None, office } from "@/components/common-ui";
 
 export function DocumentsView() {
   const {
@@ -75,9 +75,7 @@ export function DocumentsView() {
             <TableHeader>
               <TableRow>
                 <TableHead>SỐ, KÝ HIỆU</TableHead>
-                <TableHead>TRÍCH YẾU</TableHead>
-                <TableHead>NGÀY BAN HÀNH</TableHead>
-                <TableHead>LOẠI VĂN BẢN</TableHead>
+                <TableHead>TỆP ĐÍNH KÈM</TableHead>
                 <TableHead>NHIỆM VỤ</TableHead>
                 <TableHead>THAO TÁC</TableHead>
               </TableRow>
@@ -85,10 +83,11 @@ export function DocumentsView() {
             <TableBody>
               {documents.map((d: any) => (
                 <TableRow key={d.id}>
-                  <TableCell>{d.number}</TableCell>
-                  <TableCell className="task-title">{d.title}</TableCell>
-                  <TableCell>{fmt(d.issued)}</TableCell>
-                  <TableCell>{d.type}</TableCell>
+                  <TableCell className="task-title">{d.number}</TableCell>
+                  <TableCell>
+                    {data.files.filter((f: any) => f.parent_id === d.id).length}{" "}
+                    tệp
+                  </TableCell>
                   <TableCell>
                     {tasks.filter((t: any) => t.documentId === d.id).length}
                   </TableCell>

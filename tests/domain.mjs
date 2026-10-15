@@ -19,6 +19,8 @@ const {
   uniqueYear,
   defaults,
   canSee,
+  canReport,
+  orderedGroups,
 } = await import(
   pathToFileURL(process.cwd() + "/.sites-runtime/domain-test/domain.mjs")
 );
@@ -28,6 +30,17 @@ function test(name, fn) {
   n++;
   console.log("PASS " + name);
 }
+test("Thứ tự nhóm đơn vị ổn định theo Khối Đảng, HĐND, UBND, MTTQ, lực lượng vũ trang", () =>
+  assert.deepEqual(
+    orderedGroups([
+      "Lực lượng vũ trang",
+      "UBND",
+      "MTTQ và đoàn thể",
+      "HĐND",
+      "Khối Đảng",
+    ]),
+    ["Khối Đảng", "HĐND", "UBND", "MTTQ và đoàn thể", "Lực lượng vũ trang"],
+  ));
 const t = {
   id: "t",
   status: "working",
@@ -139,6 +152,25 @@ test("Chủ tịch không mặc nhiên xem khối HĐND", () =>
     ),
     false,
   ));
+test("Đơn vị phối hợp được xem nhiệm vụ nhưng không gửi báo cáo", () => {
+  const partner = { id: "partner-user", roles: ["editor"], units: ["party"] };
+  assert.equal(canSee(partner, t), true);
+  assert.equal(canReport(partner, t), false);
+});
+test("Đơn vị cấp dưới được giao chủ trì có thể gửi báo cáo", () => {
+  const childLead = {
+    ...t,
+    unit: "child-unit",
+    partners: ["party"],
+  };
+  const childAccount = {
+    id: "child-user",
+    roles: ["editor"],
+    units: ["child-unit"],
+  };
+  assert.equal(canSee(childAccount, childLead), true);
+  assert.equal(canReport(childAccount, childLead), true);
+});
 const daily = { ...t, reportFrequency: "daily", reportHour: "15:30" };
 test("Hằng ngày 15h30 theo múi giờ Việt Nam", () =>
   assert.equal(

@@ -30,6 +30,7 @@ import {
   Pick,
   api,
   blankData,
+  orderedGroups,
 } from "@/components/common-ui";
 import { reportingOnly } from "@/lib/report-access";
 import { ReportingPortal } from "@/components/reporting/portal";
@@ -73,6 +74,7 @@ export function AppLayout({
     brandLogo,
     period,
     load,
+    markNoticeRead,
     run,
     navigate,
     setForm,
@@ -123,6 +125,7 @@ export function AppLayout({
         data={data}
         user={user}
         load={load}
+        markNoticeRead={markNoticeRead}
         api={api}
         onLogout={async () => {
           try {
@@ -201,11 +204,11 @@ export function AppLayout({
           </button>
           <div className="sidebar-section">KHÔNG GIAN LÀM VIỆC</div>
           <nav className="side-menu">
-            {[menu[3], menu[4], menu[0], menu[5], menu[7], menu[6], menu[8]]
-              .filter(
-                ([p]) =>
-                  !["units", "accounts"].includes(p) ||
-                  has(user, "admin", "tech"),
+            {menu
+              .filter(([p]) =>
+                ["dashboard", "tasks", "notices", "reports", "admin"].includes(
+                  p,
+                ),
               )
               .map(([p, label, Icon]) => (
                 <button
@@ -213,13 +216,10 @@ export function AppLayout({
                   className={
                     (
                       p === "tasks"
-                        ? currentPage === "tasks" && sub === "tasks"
-                        : p === "documents"
-                          ? currentPage === "documents" ||
-                            (currentPage === "tasks" && sub === "documents")
-                          : p === "admin"
-                            ? currentPage === "admin"
-                            : currentPage === p
+                        ? currentPage === "tasks" || currentPage === "documents"
+                        : p === "admin"
+                          ? currentPage === "admin"
+                          : currentPage === p
                     )
                       ? "active"
                       : ""
@@ -227,7 +227,9 @@ export function AppLayout({
                   onClick={() => navigate(p)}
                 >
                   <Icon />
-                  {label}
+                  {p === "admin" && !has(user, "admin", "tech")
+                    ? "Tài khoản"
+                    : label}
                 </button>
               ))}
           </nav>
@@ -305,9 +307,9 @@ export function AppLayout({
             <button
               className="avatar"
               type="button"
-              aria-label="Trang chủ · Tổng quan"
-              title="Về trang Tổng quan"
-              onClick={() => navigate("dashboard")}
+              aria-label="Tài khoản cá nhân"
+              title="Mở tài khoản cá nhân"
+              onClick={() => navigate("admin", { tab: "profile" })}
             >
               <UserRound size={22} />
             </button>
@@ -387,32 +389,38 @@ export function AppLayout({
                 onChange={(v: string) => setMonth(v + month.slice(4))}
                 options={Array.from({ length: 10 }, (_, i) => String(2026 + i))}
               />
-              <Pick
-                label="Khối cơ quan"
-                value={group}
-                onChange={(v: string) => {
-                  setGroup(v);
-                  setUnit("");
-                }}
-                options={[
-                  ["", "Tất cả khối"],
-                  ...Array.from(
-                    new Set(data.units.map((u: any) => u.group)),
-                  ).map((g) => [g, g]),
-                ]}
-              />
-              <Pick
-                label="Đơn vị chủ trì"
-                value={unit}
-                onChange={setUnit}
-                options={[
-                  ["", "Tất cả đơn vị"],
-                  ...data.units
-                    .filter((u: any) => !group || u.group === group)
-                    .map((u: any) => [u.id, u.name]),
-                ]}
-              />
-              {["tasks", "progress", "reports"].includes(currentPage) && (
+              {currentPage !== "documents" && (
+                <Pick
+                  label="Khối cơ quan"
+                  value={group}
+                  onChange={(v: string) => {
+                    setGroup(v);
+                    setUnit("");
+                  }}
+                  options={[
+                    ["", "Tất cả khối"],
+                    ...orderedGroups(data.units.map((u: any) => u.group)).map(
+                      (g) => [g, g],
+                    ),
+                  ]}
+                />
+              )}
+              {currentPage !== "documents" && (
+                <Pick
+                  label="Đơn vị chủ trì"
+                  value={unit}
+                  onChange={setUnit}
+                  options={[
+                    ["", "Tất cả đơn vị"],
+                    ...data.units
+                      .filter((u: any) => !group || u.group === group)
+                      .map((u: any) => [u.id, u.name]),
+                  ]}
+                />
+              )}
+              {["tasks", "progress", "reports", "dashboard"].includes(
+                currentPage,
+              ) && (
                 <Pick
                   label="Trạng thái"
                   value={status}
@@ -420,7 +428,8 @@ export function AppLayout({
                   options={[
                     ["", "Tất cả trạng thái"],
                     ...Object.entries(stateNames),
-                    ...(currentPage === "progress"
+                    ...(currentPage === "progress" ||
+                    currentPage === "dashboard"
                       ? [
                           ["givenWork", "Đã giao việc"],
                           ["unfinished", "Chưa hoàn thành"],
@@ -434,7 +443,9 @@ export function AppLayout({
                   ]}
                 />
               )}
-              {["tasks", "progress", "reports"].includes(currentPage) && (
+              {["tasks", "progress", "reports", "dashboard"].includes(
+                currentPage,
+              ) && (
                 <div className="search">
                   <Search />
                   <input

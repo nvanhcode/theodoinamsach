@@ -1,0 +1,13 @@
+HAI TỆP CÓ METADATA TRONG BẢN CHỤP, CHƯA CÓ BINARY R2
+
+Để giữ nguyên mã liên kết trong database, sau khi lấy lại đúng tệp gốc hãy chép nội dung vào DATA_DIR/files/<id>:
+
+ID: e377ed99-36ba-441c-846f-5a32b2e505da
+Tên: 14.9.2026 UB2. Ke_hoach_tang_truong_2026_2030_Ha_Huy_Tap.docx
+Kích thước đã ghi nhận: 57,710 bytes
+
+ID: f6233036-a5c4-41c7-89a1-7a2104d0ba9f
+Tên: 14.9 UB. Ke_hoach_tang_truong_2026_2030_Ha_Huy_Tap (fn).docx
+Kích thước đã ghi nhận: 53,938 bytes
+
+Không tạo tệp rỗng theo ID. Cần nội dung DOCX gốc; sau khi chép tệp, kiểm tra tải về và mở được trên máy mới.

@@ -1,4 +1,5 @@
 import {
+  completionPercentage,
   progressCounts,
   progressFilters,
   progressUnits,
@@ -16,7 +17,7 @@ export function UnitProgress({
   return (
     <section className="panel progress-directory">
       <div className="panel-head">
-        <h2>Giao việc và kết quả theo cơ quan, đơn vị</h2>
+        <h2>Theo dõi tiến độ theo cơ quan, đơn vị</h2>
         <span className="muted">{rows.length} đơn vị</span>
       </div>
       <div className="panel-body">
@@ -59,55 +60,53 @@ export function UnitProgress({
                 <th>ĐÃ GIAO VIỆC</th>
                 <th>HOÀN THÀNH</th>
                 <th>CHƯA HOÀN THÀNH</th>
-                <th>TỶ LỆ HOÀN THÀNH</th>
+                <th title="Số nhiệm vụ đã xác nhận hoàn thành chia cho số nhiệm vụ đã giao">
+                  TỶ LỆ HOÀN THÀNH
+                  <small className="muted block normal-case">
+                    Đã xác nhận / đã giao
+                  </small>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((u: any) => (
-                <tr key={u.id}>
-                  <td>
-                    <button
-                      className="unit-progress-name"
-                      onClick={() => onUnit(u.id, "")}
-                    >
-                      {u.name}
-                    </button>
-                    <small className="muted block">
-                      {u.group}
-                      {!u.active ? " · Ngừng sử dụng" : ""}
-                    </small>
-                  </td>
-                  {["givenWork", "done", "unfinished"].map((key) => (
-                    <td key={key}>
+              {rows.map((u: any) => {
+                const rate = completionPercentage(u.done, u.givenWork);
+                return (
+                  <tr key={u.id}>
+                    <td>
                       <button
-                        className={"unit-progress-count " + key}
-                        aria-label={`${key === "givenWork" ? "Đã giao việc" : key === "done" ? "Hoàn thành" : "Chưa hoàn thành"} · ${u.name}: ${u[key]}`}
-                        onClick={() => onUnit(u.id, key)}
+                        className="unit-progress-name"
+                        onClick={() => onUnit(u.id, "")}
                       >
-                        {u[key]}
+                        {u.name}
                       </button>
+                      <small className="muted block">
+                        {u.group}
+                        {!u.active ? " · Ngừng sử dụng" : ""}
+                      </small>
                     </td>
-                  ))}
-                  <td>
-                    <div className="progress-rate">
-                      <div className="bar-track">
-                        <span
-                          style={{
-                            width:
-                              (u.givenWork ? (u.done / u.givenWork) * 100 : 0) +
-                              "%",
-                          }}
-                        />
+                    {["givenWork", "done", "unfinished"].map((key) => (
+                      <td key={key}>
+                        <button
+                          className={"unit-progress-count " + key}
+                          aria-label={`${key === "givenWork" ? "Đã giao việc" : key === "done" ? "Hoàn thành" : "Chưa hoàn thành"} · ${u.name}: ${u[key]}`}
+                          onClick={() => onUnit(u.id, key)}
+                        >
+                          {u[key]}
+                        </button>
+                      </td>
+                    ))}
+                    <td>
+                      <div className="progress-rate">
+                        <div className="bar-track">
+                          <span style={{ width: (rate ?? 0) + "%" }} />
+                        </div>
+                        <b>{rate === null ? "—" : rate + "%"}</b>
                       </div>
-                      <b>
-                        {u.givenWork
-                          ? Math.round((u.done / u.givenWork) * 100) + "%"
-                          : "—"}
-                      </b>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {!rows.length && (

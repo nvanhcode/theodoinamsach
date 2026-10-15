@@ -286,20 +286,22 @@ try {
     return r.json();
   }
   const webp = new Uint8Array([82, 73, 70, 70, 4, 0, 0, 0, 87, 69, 66, 80]);
-  const image = await uploadReport(
-    draft.id,
-    "hien-trang.webp",
-    webp,
-    sessions.bxdd,
-  );
-  await call(
-    "report",
-    { ...draft, result: "Stale attachment version", submit: true },
-    sessions.bxdd,
-    409,
-  );
+  const [image, imageCopy] = await Promise.all([
+    uploadReport(draft.id, "hien-trang.webp", webp, sessions.bxdd),
+    uploadReport(draft.id, "hien-trang-2.webp", webp, sessions.bxdd),
+  ]);
   draft = (await call("data", undefined, sessions.bxdd)).data.reports.find(
     (r) => r.id === draft.id,
+  );
+  assert.equal(
+    draft.version,
+    1,
+    "parallel attachments do not race to update the report version",
+  );
+  assert.ok(
+    (await call("data", undefined, sessions.bxdd)).data.files.some(
+      (f) => f.id === image.id && f.parent_id === draft.id,
+    ),
   );
   let file = await fetch(origin + "/api/file?id=" + image.id + "&preview=1", {
     headers: { cookie: sessions.bxdd },
@@ -324,6 +326,7 @@ try {
     );
   await call("report-file-delete", { id: image.id }, sessions.vpdu, 403);
   await call("report-file-delete", { id: image.id }, sessions.bxdd);
+  await call("report-file-delete", { id: imageCopy.id }, sessions.bxdd);
   assert.equal(
     (
       await fetch(origin + "/api/file?id=" + image.id, {
@@ -431,6 +434,7 @@ try {
       {
         name: "Đơn vị mới kiểm thử phân quyền",
         group: "Khối Đảng",
+        parentUnitId: "unit-0",
         active: true,
       },
       admin,
@@ -470,14 +474,45 @@ try {
       admin,
     )
   ).data;
+  let partnerData = (await call("data", undefined, newCookie)).data;
+  const visiblePartnerTask = partnerData.tasks.find((t) => t.id === lead.id);
+  assert.ok(visiblePartnerTask);
+  assert.equal(visiblePartnerTask.progress, 75);
+  await call(
+    "report",
+    {
+      taskId: lead.id,
+      unit: createdUnit.id,
+      result: "Đơn vị phối hợp không được gửi báo cáo",
+      progress: 100,
+      submit: true,
+    },
+    newCookie,
+    403,
+  );
+  const childTask = (
+    await call(
+      "task",
+      {
+        title: "Đơn vị cấp dưới được giao chủ trì",
+        month: "2026-10",
+        unit: createdUnit.id,
+        partners: [],
+        assignedDate: "2026-10-01",
+        due: "2026-10-31",
+        importAction: "assign",
+      },
+      admin,
+    )
+  ).data;
   let pr = (
     await call(
       "report",
       {
-        taskId: lead.id,
+        taskId: childTask.id,
         unit: createdUnit.id,
-        result: "Kết quả phối hợp",
-        progress: 100,
+        result: "Báo cáo của đơn vị cấp dưới được giao chủ trì",
+        progress: 75,
         submit: true,
       },
       newCookie,
@@ -490,6 +525,12 @@ try {
   );
   assert.equal(
     (await call("data", undefined, admin)).data.tasks.find(
+      (t) => t.id === childTask.id,
+    ).progress,
+    75,
+  );
+  assert.equal(
+    (await call("data", undefined, newCookie)).data.tasks.find(
       (t) => t.id === lead.id,
     ).progress,
     75,
@@ -511,7 +552,7 @@ try {
     await call(
       "report",
       {
-        taskId: lead.id,
+        taskId: childTask.id,
         unit: createdUnit.id,
         result: "Minh chứng nén",
         progress: 50,
@@ -552,7 +593,7 @@ try {
     /^attachment/,
   );
   current = (await call("data", undefined, admin)).data.tasks.find(
-    (t) => t.id === lead.id,
+    (t) => t.id === childTask.id,
   );
   await call("task", { ...current, evidenceRequirement: "document" }, admin);
   archiveDraft = (await call("data", undefined, newCookie)).data.reports.find(
@@ -564,8 +605,16 @@ try {
   archiveDraft = (await call("data", undefined, newCookie)).data.reports.find(
     (r) => r.id === archiveDraft.id,
   );
+  assert.equal(
+    (await call("data", undefined, newCookie)).data.files.filter(
+      (file) => file.parent_id === archiveDraft.id,
+    ).length,
+    3,
+  );
+  archiveDraft = (
+    await call("report", { ...archiveDraft, submit: true }, newCookie)
+  ).data;
   assert.equal(archiveDraft.evidenceIds.length, 3);
-  await call("report", { ...archiveDraft, submit: true }, newCookie);
   console.log(
     "PASS ZIP/RAR/7Z, invalid signature, max 3 server limit, download-only archives, document requirement and freed upload slot",
   );
@@ -575,7 +624,7 @@ try {
   await call("users", { ...newUser, roles: ["inspector"] }, admin);
   await call(
     "report",
-    { taskId: lead.id, result: "Revoked", progress: 100 },
+    { taskId: childTask.id, result: "Revoked", progress: 100 },
     newCookie,
     401,
   );
@@ -587,11 +636,11 @@ try {
   ).cookie;
   await call(
     "report",
-    { taskId: lead.id, result: "Revoked", progress: 100 },
+    { taskId: childTask.id, result: "Revoked", progress: 100 },
     newCookie,
     403,
   );
-  await uploadReport(lead.id, "denied.pdf", "%PDF-1.4", newCookie, 403);
+  await uploadReport(childTask.id, "denied.pdf", "%PDF-1.4", newCookie, 403);
   console.log(
     "PASS report files, WEBP/PDF previews, draft deletion, required image, stale version, return/history, partner isolation, new account and revoked API permission",
   );

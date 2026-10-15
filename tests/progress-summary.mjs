@@ -9,7 +9,12 @@ await build({
     rollupOptions: { output: { entryFileNames: "summary.mjs" } },
   },
 });
-const { progressCounts, progressUnits, matchesProgressStatus } = await import(
+const {
+  completionPercentage,
+  progressCounts,
+  progressUnits,
+  matchesProgressStatus,
+} = await import(
   pathToFileURL(process.cwd() + "/.sites-runtime/progress-test/summary.mjs")
 );
 const tasks = [
@@ -83,6 +88,10 @@ assert.deepEqual(progressCounts([]), {
   done: 0,
   unfinished: 0,
 });
+assert.equal(completionPercentage(1, 4), 25);
+assert.equal(completionPercentage(3, 3), 100);
+assert.equal(completionPercentage(4, 3), 100, "display rate is capped");
+assert.equal(completionPercentage(0, 0), null, "no assigned tasks has no rate");
 console.log(
-  "PASS unit directory synchronization, confirmed completion, status counts, scope and historical tasks",
+  "PASS confirmed completion, status counts, percentage, scope and historical tasks",
 );

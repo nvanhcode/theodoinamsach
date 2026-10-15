@@ -7,7 +7,6 @@ import {
   Users,
   LayoutDashboard,
   ClipboardList,
-  ChartNoAxesCombined,
   Bell,
   Settings,
   FolderOpen,
@@ -31,6 +30,7 @@ import {
   roleNames,
   stateNames,
   groups,
+  orderedGroups,
   defaults,
   has,
   office,
@@ -49,6 +49,7 @@ export {
   roleNames,
   stateNames,
   groups,
+  orderedGroups,
   defaults,
   has,
   office,
@@ -68,11 +69,10 @@ export const menu = [
   ["units", "Cơ quan, đơn vị", Building2],
   ["accounts", "Đơn vị – Tài khoản", Users],
   ["dashboard", "Tổng quan", LayoutDashboard],
-  ["tasks", "Nhập dữ liệu công việc", ClipboardList],
-  ["progress", "Theo dõi tiến độ", ChartNoAxesCombined],
+  ["tasks", "Nhiệm vụ & văn bản", ClipboardList],
   ["notices", "Nhắc việc – Thông báo", Bell],
-  ["reports", "Báo cáo – Giao ban", FileText],
-  ["admin", "Cài đặt hệ thống", Settings],
+  ["reports", "Phê duyệt Báo cáo các đơn vị", FileText],
+  ["admin", "Quản trị", Settings],
 ] as const;
 
 export async function api(path: string, body?: any) {
@@ -85,7 +85,17 @@ export async function api(path: string, body?: any) {
         : { "Content-Type": "application/json", "X-NS-Request": "1" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const data: any = await r.json();
+  let data: any;
+  try {
+    data = await r.json();
+  } catch {
+    throw Object.assign(
+      new Error(
+        "Máy chủ trả về dữ liệu không hợp lệ. Hãy tải lại trang và đăng nhập lại nếu phiên đã hết.",
+      ),
+      { status: r.status },
+    );
+  }
   if (!r.ok)
     throw Object.assign(new Error(data.error || "Không thể kết nối máy chủ."), {
       status: r.status,

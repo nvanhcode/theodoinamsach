@@ -1,96 +1,75 @@
-# Triển khai website Đảng ủy xã Nam Sách — v30 đầy đủ dữ liệu
+# Hệ thống theo dõi kết luận, chỉ đạo — gói hosting Nam Sách
 
-## 1. Phạm vi bàn giao
+## Bản phát hành
 
-Nguồn nghiệp vụ: commit `21622ae8d3ab87aa3475530c17ad263dcaaa7975`, bản Sites v30, gồm sửa biểu mẫu điện thoại. Gói bổ sung bản chạy tự quản, dữ liệu SQLite thật, bộ nạp dữ liệu lần đầu và tài liệu triển khai; không thay đổi website đang dùng.
+- Mã nguồn: Site Nam Sách, phiên bản 33, cập nhật ngày 15/10/2026.
+- Bản chạy riêng: Node.js 24, SQLite và thư mục lưu tệp nội bộ.
+- Tên miền đã chuẩn bị trong cấu hình: `theodoinamsach.com`.
+- Gói gồm mã nguồn, giao diện đã biên dịch, Docker/Caddy, cơ sở dữ liệu khởi tạo và tài liệu triển khai.
+- Không gồm phiên đăng nhập, khóa/API key bên thứ ba hay thông tin cấu hình bí mật.
 
-`initial-data/nam-sach.sqlite` là bản chụp dữ liệu thật. `selfhost-dist` là mã đã biên dịch. `app`, `components`, `lib`, `selfhost` và các tệp cấu hình là mã nguồn. `drizzle` chứa schema và migrations. Không cần API key Firebase/Supabase, email, SMS hoặc dịch vụ nghiệp vụ bên ngoài. Chạy Node với SQLite và kho minh chứng ở máy chủ nội bộ của đơn vị. Docker/Caddy có thể cần mạng để tải image và cấp HTTPS; đó không phải API key nghiệp vụ.
+## Dữ liệu khởi tạo
 
-Dữ liệu và số lượng: xem RELEASE.json. Bảng nghiệp vụ và tài khoản được đọc lại để đối chiếu không thay đổi giữa hai lượt xuất. Công cụ xuất không có giao dịch khóa toàn project; bản sao là tại thời điểm bàn giao, không phải đồng bộ liên tục. Phiên đăng nhập/attempts/link tải tạm bị loại bỏ có chủ đích. Metadata tệp minh chứng bằng 0 nên không thiếu binary trong gói này.
+Cơ sở dữ liệu được chụp từ D1 của Site ngày 15/10/2026, khoảng 11:14 giờ Việt Nam. Bản chụp có 45 nhiệm vụ tháng 10/2026, 22 đơn vị, 9 tài khoản, 3 báo cáo, 53 thông báo, 180 mục nhật ký và 2 dòng metadata tệp.
 
-## 2. Docker và HTTPS (khuyến nghị)
+**Hai tệp DOCX tải lên ở Site chưa có phần nội dung nhị phân trong bản xuất này.** Tên và mã tệp được liệt kê trong `TAP-TIN-CHUA-KEM.txt`; cần lấy lại hai tệp gốc và chép vào `data/files/<mã-tệp>` trước khi chuyển hệ thống cho các đơn vị. Tệp thiếu không ảnh hưởng đăng nhập hay các luồng nhiệm vụ/báo cáo khác, nhưng liên kết tải hai DOCX này chưa dùng được cho tới khi bổ sung.
 
-Máy chủ Linux có Docker Compose, ổ đĩa bền vững, tên miền trỏ đúng IP; cổng 80/443 mở.
+Phiên đăng nhập không được chuyển. Các tài khoản dùng mật khẩu đã băm hiện có; không đặt lại mật khẩu. Dữ liệu trên Site cũ phát sinh sau thời điểm chụp không tự đồng bộ sang máy chủ mới.
 
-```bash
-cp .env.example .env
-chmod 600 .env
-openssl rand -hex 32
-```
+## Điều kiện hosting
 
-Điền DOMAIN trong `.env` bằng tên miền, không có https://; SETUP_TOKEN bằng chuỗi ngẫu nhiên vừa tạo.
+Cần VPS hoặc hosting hỗ trợ Docker Compose, lưu trữ bền vững, mở cổng 80/443 và cho phép Node.js 24 trong container. Hosting chỉ có PHP/MySQL hoặc hosting tĩnh không chạy được ứng dụng này. Gói chưa cấu hình DNS, chưa triển khai lên máy chủ của người dùng và chưa cấp chứng thư HTTPS trên tên miền thực.
 
-```bash
-docker compose up -d --build
-docker compose logs --tail=80 app https
-```
+## Cài bằng Docker và Caddy
 
-Mở `https://ten-mien-cua-ban.vn`. Caddy cấp HTTPS. Dockerfile mặc định dùng bản dựng sẵn; không cần cài pnpm/node_modules để chạy. SQLite và tệp mới lưu vào volume `nam_sach_data` (có thể có tiền tố tên project Compose).
+1. Giải nén gói vào thư mục riêng trên VPS, **không đặt trong `public_html`**.
+2. Tạo tệp cấu hình và mã cài đặt riêng:
 
-Giữ nguyên tên project/thư mục Compose khi cập nhật. Không chạy `docker compose down -v` vì xóa dữ liệu. Bộ startup chỉ sao chép SQLite ban đầu vào thư mục rỗng, tuyệt đối không thay thế database đang có. Nếu đã có volume từ bản cài trống trước đó, dừng và sao lưu volume đó; dùng project/volume mới để thử bản bàn giao này, không xóa dữ liệu cũ tùy tiện.
+   ```bash
+   cp .env.example .env
+   chmod 600 .env
+   openssl rand -hex 32
+   ```
 
-## 3. Hosting Node.js không Docker
+3. Điền `DOMAIN=theodoinamsach.com`, `APP_ORIGIN=https://theodoinamsach.com` và thay `SETUP_TOKEN` bằng chuỗi vừa tạo. Không dùng chuỗi mẫu trong `.env.example`.
+4. Trỏ bản ghi DNS A của `theodoinamsach.com` tới IP máy chủ; mở TCP 80/443 và UDP 443. Nếu dùng cả `www.theodoinamsach.com`, thêm DNS và host tương ứng vào Caddyfile trước khi chạy.
+5. Khởi động:
 
-Dùng Node.js 24. Chạy từ thư mục gốc của gói:
+   ```bash
+   docker compose up -d --build
+   docker compose logs --tail=80 app https
+   ```
+
+6. Trước khi mở DNS cho người dùng, đăng nhập hệ thống và đổi mật khẩu tất cả tài khoản đã bàn giao; không tiếp tục dùng mật khẩu khởi tạo. Nếu DNS đã công khai, đổi mật khẩu ngay.
+7. Kiểm tra số liệu, báo cáo, phân quyền và tải tệp bằng tài khoản admin cùng ít nhất một tài khoản đơn vị. Chỉ chuyển người dùng sang địa chỉ mới sau khi đối chiếu xong.
+
+Caddy tự xin và gia hạn HTTPS khi DNS trỏ đúng và cổng mạng được mở. Nếu máy chủ đã có Nginx/Apache sử dụng cổng 80/443, không bật service `https`; cấu hình reverse proxy tới `http://127.0.0.1:8208` và vẫn giữ `APP_ORIGIN=https://theodoinamsach.com`.
+
+## Chạy trực tiếp bằng Node.js 24
+
+Từ thư mục gốc đã giải nén:
 
 ```bash
 export NODE_ENV=production
 export PORT=3080
-export APP_ORIGIN=https://ten-mien-cua-ban.vn
+export APP_ORIGIN=https://theodoinamsach.com
 export DATA_DIR=/srv/nam-sach-data
-export SETUP_TOKEN=CHUOI_NGAU_NHIEN_RIENG
+export SETUP_TOKEN='CHUOI_NGAU_NHIEN_RIENG'
 node startup/start.mjs
 ```
 
-Cấu hình systemd hoặc trình quản lý tiến trình của hosting để tự khởi động lại. Reverse proxy HTTPS tới 127.0.0.1:3080; nếu Nginx, đặt `client_max_body_size 30m;`. Giới hạn truy cập trực tiếp cổng 3080 bằng firewall. Cookie Secure cần HTTPS. DATA_DIR phải được tài khoản chạy ứng dụng đọc/ghi và ở ngoài thư mục công khai.
+Dùng systemd/process manager để tự khởi động lại; reverse proxy HTTPS tới `127.0.0.1:3080`. Với Nginx, đặt `client_max_body_size 30m;`. Giới hạn cổng Node chỉ cho reverse proxy truy cập. Thư mục `DATA_DIR` phải nằm ngoài thư mục công khai và cho phép tài khoản ứng dụng đọc/ghi.
 
-Không chạy `selfhost-dist/server/server.mjs` trực tiếp trong lần cài đầu nếu muốn nạp dữ liệu bàn giao; dùng `startup/start.mjs`. Hosting chỉ có PHP/MySQL không phù hợp. Không dùng filesystem tạm, nhiều bản sao ứng dụng hoặc ổ mạng dùng chung SQLite.
+## Lưu trữ, sao lưu và cập nhật
 
-## 4. Tài khoản và dữ liệu
+- Cơ sở dữ liệu: `DATA_DIR/nam-sach.sqlite`.
+- Tệp tải lên: `DATA_DIR/files/`.
+- Container dùng thư mục bền vững `./data`; không xóa thư mục này khi cập nhật. Không dùng ổ đĩa tạm hoặc chạy nhiều bản ứng dụng cùng ghi một SQLite.
+- Sao lưu khi ứng dụng dừng: sao chép toàn bộ `data/` ra vị trí an toàn. Kiểm tra bản sao phục hồi trước khi xóa hoặc thay máy chủ.
+- Không đưa `.env`, tệp ZIP hoặc database vào thư mục website công khai.
 
-Đăng nhập bằng tài khoản/mật khẩu thực tế đang dùng tại thời điểm xuất. Không đổi về admin/admin và không đặt lại mật khẩu đơn vị. Gói giữ 9 tài khoản và phạm vi phân quyền hiện tại; màn hình yêu cầu đổi mật khẩu giữ trạng thái hiện có. Không có mật khẩu văn bản thuần trong database.
+## Kiểm thử và giới hạn xác nhận
 
-Báo cáo, tác giả và đơn vị giữ nguyên ID, nên không phải ghép lại tài khoản. Bộ 44 nhiệm vụ tháng 10 giữ nguyên; 2 nhiệm vụ khác được giữ nguyên theo nguồn. Tháng mới không tự sao chép dữ liệu.
+Bộ kiểm thử tích hợp hiện có đạt **55/55** ca HTTP/SQLite: phân quyền; giao nhiệm vụ; chủ trì/phối hợp; gửi, trả, duyệt báo cáo; cập nhật tiến độ và bộ đếm; minh chứng; thông báo; lịch sử; sao lưu/phục hồi; xóa nhiệm vụ theo tháng và kiểm tra trang con không còn thấy nhiệm vụ/báo cáo đã xóa.
 
-Sau khi nghiệm thu, thống nhất một địa chỉ nhập liệu chính. Dữ liệu phát sinh ở website cũ sau lúc xuất không tự xuất hiện trên hosting mới. Không chạy hai địa chỉ cùng nhập liệu mà không có quy trình đối chiếu.
-
-## 5. Vị trí dữ liệu nội bộ
-
-- DATA_DIR/nam-sach.sqlite: tài khoản, đơn vị, nhiệm vụ, báo cáo, cấu hình, lịch sử và metadata minh chứng.
-- DATA_DIR/files/: nội dung minh chứng tải lên sau triển khai.
-- SQLite có thể tạo thêm -wal và -shm trong lúc chạy.
-  Không lưu dữ liệu nghiệp vụ chỉ trong localStorage. Không xóa DATA_DIR khi cập nhật mã. Không đặt initial-data hay bản backup trong public hoặc public_html.
-
-## 6. Sao lưu và phục hồi
-
-Dừng ứng dụng, sao lưu toàn bộ DATA_DIR/volume và kho files cùng lúc để nhất quán. Ví dụ:
-
-```bash
-mkdir -p backups
-docker compose stop app
-docker compose run --rm --no-deps --entrypoint tar app -czf - -C /data . > backups/nam-sach-full.tar.gz
-docker compose start app
-```
-
-Giữ bản sao ở nơi khác, hạn chế quyền đọc. Phục hồi khi ứng dụng dừng vào thư mục/volume trống, sau khi đã sao lưu bản hiện tại. Không trộn hai database bằng chép đè từng bảng. Thu hồi phiên đăng nhập khi phục hồi bằng công cụ quản trị SQLite tại máy chủ.
-
-Sao lưu JSON trên giao diện chỉ là nghiệp vụ, không thay cho backup toàn DATA_DIR: không có mật khẩu, phiên hay binary minh chứng.
-
-## 7. Sửa nguồn và cập nhật
-
-Để tự dựng: cài phiên bản pnpm theo packageManager trong package.json, chạy:
-
-```bash
-pnpm install --frozen-lockfile
-node selfhost/build.mjs
-```
-
-Hoặc dùng Dockerfile.build-source. Khi cập nhật mã, giữ nguyên DATA_DIR. Không lấy `dist` của Sites làm bản chạy Node. Các thư viện cần tải khi dựng lại; bản dựng sẵn đã kèm trong gói.
-
-## 8. Kiểm thử và nghiệm thu
-
-49 ca HTTP/SQLite đã đạt (KIEM-THU-TICH-HOP-49.txt), gồm lưu/sửa, phân quyền, xung đột, minh chứng, lịch sử, khởi động lại giữ dữ liệu và phục hồi. Kiểm thử 8 tài khoản, tài khoản mới, file nén và giới hạn 3 tệp ở KIEM-THU.txt. Bộ fixture tích hợp đã đổi tên tài khoản thử để tránh trùng 8 tài khoản cấp sẵn. Các test dùng dữ liệu tách biệt, không ghi vào initial-data.
-
-Bản chụp được kiểm tra integrity_check và foreign_key_check, cùng khởi động/khởi động lại bằng startup. Xem KIEM-THU-DONG-GOI.txt.
-
-Trên hosting đích cần kiểm tra HTTPS; đăng nhập Admin và đơn vị; 46 nhiệm vụ/1 báo cáo; lưu và tải lại trang; tải minh chứng; nhập/xuất Excel; sửa báo cáo trên iPhone/Android; sao lưu và diễn tập phục hồi. Chưa kiểm thử Docker/DNS/HTTPS trên máy chủ đích hoặc Safari thực tế; không coi kiểm thử API là nghiệm thu giao diện điện thoại.
+Bản dựng Node.js 24 và tính toàn vẹn SQLite/khóa ngoại đã được kiểm tra. Chưa kiểm thử DNS, HTTPS, Docker trên máy chủ đích, giao diện Safari/iPhone thực tế hoặc quy trình phục hồi trên hosting của người dùng. Đọc `BAO-CAO-RA-SOAT-LUONG.md` và `KIEM-TRA-GOI-HOSTING.txt` trước khi chuyển dữ liệu thật.

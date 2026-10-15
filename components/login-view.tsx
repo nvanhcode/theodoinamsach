@@ -1,12 +1,14 @@
 "use client";
 
 import React from "react";
-import { ShieldCheck, LockKeyhole } from "lucide-react";
+import { Eye, EyeOff, ShieldCheck, LockKeyhole } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { useApp } from "@/components/app-context";
 import { Btn, Field, api } from "@/components/common-ui";
 
 export function LoginView() {
+  const [showCurrentPassword, setShowCurrentPassword] = React.useState(false);
+  const [showPassword, setShowPassword] = React.useState(false);
   const {
     user,
     setUser,
@@ -103,13 +105,37 @@ export function LoginView() {
             </p>
             {user?.mustChange ? (
               <Field label="Mật khẩu tạm thời / hiện tại">
-                <input
-                  required
-                  type="password"
-                  autoComplete="current-password"
-                  value={form.old || ""}
-                  onChange={(e) => change("old", e.target.value)}
-                />
+                <div className="password-input-wrap">
+                  <input
+                    required
+                    type={showCurrentPassword ? "text" : "password"}
+                    autoComplete="current-password"
+                    value={form.old || ""}
+                    onChange={(e) => change("old", e.target.value)}
+                  />
+                  <button
+                    className="password-visibility-toggle"
+                    type="button"
+                    aria-label={
+                      showCurrentPassword
+                        ? "Ẩn mật khẩu hiện tại"
+                        : "Hiện mật khẩu hiện tại"
+                    }
+                    aria-pressed={showCurrentPassword}
+                    title={
+                      showCurrentPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"
+                    }
+                    onClick={() =>
+                      setShowCurrentPassword((visible) => !visible)
+                    }
+                  >
+                    {showCurrentPassword ? (
+                      <EyeOff size={18} />
+                    ) : (
+                      <Eye size={18} />
+                    )}
+                  </button>
+                </div>
               </Field>
             ) : (
               <Field label="Tên đăng nhập">
@@ -129,19 +155,31 @@ export function LoginView() {
                   : "Mật khẩu"
               }
             >
-              <input
-                required
-                minLength={user?.mustChange ? 12 : 1}
-                type="password"
-                autoComplete={
-                  initialized && !user?.mustChange
-                    ? "current-password"
-                    : "new-password"
-                }
-                placeholder="Nhập mật khẩu"
-                value={form.password || ""}
-                onChange={(e) => change("password", e.target.value)}
-              />
+              <div className="password-input-wrap">
+                <input
+                  required
+                  minLength={user?.mustChange ? 12 : 1}
+                  type={showPassword ? "text" : "password"}
+                  autoComplete={
+                    initialized && !user?.mustChange
+                      ? "current-password"
+                      : "new-password"
+                  }
+                  placeholder="Nhập mật khẩu"
+                  value={form.password || ""}
+                  onChange={(e) => change("password", e.target.value)}
+                />
+                <button
+                  className="password-visibility-toggle"
+                  type="button"
+                  aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                  aria-pressed={showPassword}
+                  title={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                  onClick={() => setShowPassword((visible) => !visible)}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </Field>
             {error && (
               <div className="error-box" role="alert">

@@ -1,6 +1,8 @@
-PASS SQLite integrity and foreign keys.
-PASS independent packaged Node startup without node_modules.
-PASS 46 tasks, 1 report, 23 units, 9 users preserved.
-PASS restart retains new local records; no snapshot overwrite.
-PASS no old login sessions migrated; source snapshot unchanged.
-NOT TESTED: target-host Docker, DNS, HTTPS, real iPhone.
+PASS SQLite integrity_check.
+PASS SQLite foreign_key_check (0 errors).
+PASS database snapshot contains 45 tasks, 3 reports, 22 units, 9 users, 53 notices, 180 audit records.
+PASS independent packaged Node startup; session and login-attempt tables are empty.
+PASS restart retains local records; startup does not overwrite an existing database.
+PASS Docker Compose YAML parses successfully.
+NOT TESTED: target-host Docker build, DNS, HTTPS certificate, mobile Safari/real iPhone.
+LIMITATION: two DOCX metadata rows are included, their R2 binary contents are not available in this export; see TAP-TIN-CHUA-KEM.txt.

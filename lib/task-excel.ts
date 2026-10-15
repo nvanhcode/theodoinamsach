@@ -21,6 +21,7 @@ export const taskImportHeaders = [
   "Sản phẩm đầu ra",
   "Ghi chú",
   "Lý do điều chỉnh",
+  "Yêu cầu thông tin phối hợp",
 ];
 const norm = (v: any) =>
   String(v ?? "")
@@ -66,6 +67,10 @@ export async function buildTaskTemplate(data: any, month: string) {
     [
       "Đơn vị",
       "Dùng tên hoặc mã tại Danh muc don vi. Đơn vị phối hợp ngăn cách bằng dấu chấm phẩy (;).",
+    ],
+    [
+      "Thông tin phối hợp",
+      "Nhập Có nếu đơn vị chủ trì cần đơn vị phối hợp gửi thông tin. Để trống sẽ mặc định Có khi có đơn vị phối hợp; nhập Không để tắt.",
     ],
     [
       "Ngày / giờ",
@@ -218,6 +223,20 @@ export async function parseTaskExcel(
       .map(resolveUnit);
     if (partners.includes(unit))
       errors.push("Chủ trì không đồng thời là đơn vị phối hợp");
+    const partnerUpdateValue = norm(get("Yêu cầu thông tin phối hợp"));
+    const yesValues = ["có", "co", "yes", "true", "1", "x"];
+    const noValues = ["không", "khong", "no", "false", "0"];
+    if (
+      partnerUpdateValue &&
+      !yesValues.includes(partnerUpdateValue) &&
+      !noValues.includes(partnerUpdateValue)
+    )
+      errors.push("Yêu cầu thông tin phối hợp chỉ nhận Có hoặc Không");
+    const partnerUpdateRequired = partnerUpdateValue
+      ? yesValues.includes(partnerUpdateValue)
+      : (old?.partnerUpdateRequired ?? partners.length > 0);
+    if (partnerUpdateRequired && !partners.length)
+      errors.push("Chỉ yêu cầu thông tin phối hợp khi đã chọn đơn vị phối hợp");
     const owner = text(get("Người phụ trách"));
     if (!owner) errors.push("Thiếu người phụ trách");
     const assignedDate = date(get("Ngày giao")),
@@ -295,6 +314,7 @@ export async function parseTaskExcel(
       documentId: docNum ? docs[0]?.id : "",
       unit,
       partners: Array.from(new Set(partners)),
+      partnerUpdateRequired,
       owner,
       leader: text(get("Lãnh đạo theo dõi")),
       assignedDate,

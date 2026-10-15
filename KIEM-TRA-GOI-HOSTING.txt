@@ -1,11 +1,14 @@
-Không thiếu tệp so với gói đầy đủ trước: 206/206 tệp.
-SQLite: integrity_check và foreign_key_check đạt.
-Dữ liệu: 46 nhiệm vụ; 1 báo cáo; 23 đơn vị; 9 tài khoản.
-Khởi động từ ZIP giải nén mới bằng Node.js 24: đạt.
-HTML và tài nguyên giao diện: tải thành công.
-Ảnh PNG/JPG: HTTP đúng Content-Type, giải mã đầy đủ.
-Tải mẫu Excel qua API: thành công, workbook không lỗi ZIP.
-Truy cập dữ liệu chưa đăng nhập: bị chặn HTTP 401.
-Khởi động lại: giữ nguyên dữ liệu, không nạp đè SQLite.
-Bản dữ liệu gốc không đổi.
-Phạm vi: kiểm tra gói và máy chủ cục bộ; chưa triển khai trên hosting của người dùng, chưa kiểm thử giao diện trên điện thoại thật.
+Kiểm tra gói hosting Nam Sách ngày 15/10/2026
+
+PASS SQLite integrity_check.
+PASS SQLite foreign_key_check, không có lỗi.
+PASS Node.js 24 prebuilt server khởi động từ gói giải nén mới.
+PASS 45 nhiệm vụ, 3 báo cáo, 22 đơn vị, 9 tài khoản, 53 thông báo và 180 nhật ký được đóng gói.
+PASS Khởi động lại giữ nguyên dữ liệu; snapshot không ghi đè database đã có.
+PASS API dữ liệu chưa đăng nhập trả HTTP 401.
+PASS Excel, tệp tĩnh và các kiểm thử API/SQLite được kiểm tra trong bộ tích hợp.
+PASS Compose YAML phân tích hợp lệ.
+
+CHƯA KIỂM TRA: Docker build trên máy chủ đích, DNS tên miền, chứng thư HTTPS trên theodoinamsach.com và Safari/iPhone thật.
+CẦN BỔ SUNG: nội dung binary của 2 tệp DOCX tải lên Site; xem TAP-TIN-CHUA-KEM.txt.
+Nguồn dữ liệu: bản đọc D1 ngày 15/10/2026; không có transaction khóa dữ liệu trong toàn bộ lượt xuất.

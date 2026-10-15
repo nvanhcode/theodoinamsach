@@ -28,6 +28,10 @@ export function progressCounts(tasks: any[]) {
       .length,
   };
 }
+export function completionPercentage(done: number, givenWork: number) {
+  if (givenWork <= 0) return null;
+  return Math.max(0, Math.min(100, Math.round((done / givenWork) * 100)));
+}
 export function progressUnits(units: any[], tasks: any[], scope: any = {}) {
   return units
     .filter(

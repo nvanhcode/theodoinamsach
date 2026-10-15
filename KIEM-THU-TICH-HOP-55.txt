@@ -1,0 +1,4 @@
+Báo cáo thực thi nằm trong tests/RESULTS.txt.
+Kết quả: 55/55 ca HTTP/SQLite đạt.
+Các nhóm được kiểm tra: xác thực và phân quyền; giao nhiệm vụ; chủ trì/phối hợp; báo cáo và phê duyệt; tiến độ và bộ đếm; minh chứng; nhắc việc; nhật ký; sao lưu/phục hồi; xóa theo tháng và kiểm tra danh sách ở tài khoản đơn vị.
+Runtime kiểm thử: Node.js, SQLite và HTTP cục bộ. Không thay cho kiểm thử DNS, HTTPS hoặc trình duyệt trên máy chủ/thiết bị thật.

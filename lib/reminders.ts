@@ -1,10 +1,13 @@
-import { records, record, stmt, now, log } from "./server";
-import { defaults, deadlineState, reportState, reportWindow } from "./domain";
+import { records, record, log } from "./server";
+import { deadlineState, reportState, reportWindow } from "./domain";
+import { notify, notifyReportApproval } from "./notice-writer";
 export async function checkReminders() {
   const cfg = await record("settings");
   if (!cfg) return { count: 0 };
   const ts = await records("task"),
-    reports = await records("report");
+    reports = await records("report"),
+    units = await records("unit");
+  const unitNames = new Map(units.map((unit: any) => [unit.id, unit.name]));
   let count = 0;
   for (const t of ts) {
     if (["draft", "pending", "done", "cancelled", "paused"].includes(t.status))
@@ -13,8 +16,15 @@ export async function checkReminders() {
     const ds = deadlineState(t, new Date(), cfg.warningDays),
       rs = reportState(t, reports, new Date(), cfg);
     const messages = [];
-    if (ds === "overdue") messages.push("Nhiệm vụ quá hạn");
-    else if (ds === "soon") messages.push("Nhiệm vụ sắp đến hạn");
+    if (ds === "overdue") {
+      const due = new Date(t.due + "T00:00:00+07:00").toLocaleDateString(
+        "vi-VN",
+        { timeZone: "Asia/Ho_Chi_Minh" },
+      );
+      messages.push(
+        `Nhiệm vụ quá hạn · ${unitNames.get(t.unit) || t.unit} · hạn ${due}`,
+      );
+    } else if (ds === "soon") messages.push("Nhiệm vụ sắp đến hạn");
     if (rs === "missing")
       messages.push(
         "Chưa gửi báo cáo " + (w.frequency === "daily" ? "hằng ngày" : "tuần"),
@@ -30,20 +40,20 @@ export async function checkReminders() {
       );
     for (const message of messages) {
       const key = "notice-auto-" + t.id + "-" + w.key + "-" + message;
-      const r = await stmt(
-        "INSERT OR IGNORE INTO records(id,kind,parent_id,data,version,updated) VALUES(?,?,?,?,1,?)",
-        key,
-        "notice",
-        t.id,
-        JSON.stringify({
-          taskId: t.id,
-          title: message + ": " + t.title,
-          readBy: [],
-        }),
-        now(),
-      ).run();
-      count += r.meta.changes;
+      count += await notify(
+        t,
+        message + ": " + t.title,
+        key.slice("notice-".length),
+        [t.unit],
+      );
     }
+  }
+  const taskById = new Map(ts.map((task: any) => [task.id, task]));
+  for (const report of reports.filter(
+    (item: any) => item.state === "submitted",
+  )) {
+    const task = taskById.get(report.taskId);
+    if (task) count += await notifyReportApproval(report, task, units);
   }
   if (count)
     await log(

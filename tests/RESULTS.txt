@@ -27,11 +27,13 @@ PASS 22 Lưu nháp báo cáo
 PASS 23 Gửi báo cáo lưu thời gian máy chủ
 PASS 24 Không tự xác nhận báo cáo
 PASS 25 Trả lại, chỉnh sửa và gửi lại
-PASS 26 Xác nhận báo cáo đồng bộ tiến độ, chưa tự hoàn thành
+PASS 26 Duyệt báo cáo còn báo cáo mới thì chưa hoàn thành
+PASS 26b Duyệt tiến độ dưới 100% vẫn chưa hoàn thành
+PASS 26c Duyệt tiến độ từ 100% tự hoàn thành và cập nhật bộ đếm
 PASS 27 Không sửa âm thầm báo cáo đã xác nhận
 PASS 28 Upload minh chứng thật
 PASS 29 Từ chối tệp giả định dạng
-PASS 30 Xác nhận hoàn thành riêng biệt
+PASS 30 Bộ đếm hoàn thành lấy trạng thái nhiệm vụ đã duyệt
 PASS 31 Không chuyển tiếp nhiệm vụ đã hoàn thành
 PASS 32 Tạo nhiệm vụ tiếp nối và bảo toàn kỳ cũ
 PASS 33 Chặn chuyển tiếp trùng kỳ
@@ -47,5 +49,9 @@ PASS 42 CSRF yêu cầu khác nguồn bị chặn
 PASS 43 Khởi động lại vẫn giữ hồ sơ và phiên
 PASS 44 Hạn chế thử mật khẩu sai
 PASS 45 Phục hồi nghiệp vụ vào hệ thống mới
-TOTAL 49 passed
+PASS 46 Đơn vị cấp dưới chủ trì báo cáo, đơn vị phối hợp chỉ theo dõi
+PASS 47 Chỉ Admin được xóa nhiệm vụ hàng loạt
+PASS 48 Xóa theo tháng dọn báo cáo, tệp và giữ nguyên tháng khác
+PASS 49 Từ chối yêu cầu xóa tất cả tháng và giữ dữ liệu
+TOTAL 55 passed
 Runtime: Node self-host, SQLite and real HTTP requests; no browser UI automation.

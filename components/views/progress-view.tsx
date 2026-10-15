@@ -25,8 +25,9 @@ export function ProgressView() {
     <>
       <div className="hint mb-5">
         <Info />
-        Đơn vị chủ trì gửi báo cáo; thủ trưởng xác nhận; Văn phòng kiểm tra và
-        xác nhận hoàn thành. Đơn vị phối hợp cập nhật phần việc của mình.
+        Đơn vị chủ trì gửi báo cáo; thủ trưởng xác nhận. Báo cáo được xác nhận
+        từ 100% sẽ tự chuyển nhiệm vụ sang hoàn thành và cập nhật tổng quan. Đơn
+        vị phối hợp theo dõi tiến độ, không gửi báo cáo riêng.
       </div>
       <UnitProgress
         units={data.units}

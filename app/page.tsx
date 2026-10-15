@@ -6,7 +6,6 @@ import { AppLayout } from "@/components/app-layout";
 import { DashboardView } from "@/components/views/dashboard-view";
 import { TasksView } from "@/components/views/tasks-view";
 import { DocumentsView } from "@/components/views/documents-view";
-import { ProgressView } from "@/components/views/progress-view";
 import { NoticesView } from "@/components/views/notices-view";
 import { ReportsView } from "@/components/views/reports-view";
 import { AdminView } from "@/components/views/admin-view";
@@ -23,9 +22,6 @@ function AppRouter() {
   }
   if (page === "tasks") {
     return <TasksView />;
-  }
-  if (page === "progress") {
-    return <ProgressView />;
   }
   if (page === "notices") {
     return <NoticesView />;
