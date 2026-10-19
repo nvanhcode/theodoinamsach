@@ -32,7 +32,6 @@ export function TasksView() {
     sub,
     setSub,
     monthTasks,
-    downloadReadyTemplate,
     downloadTemplate,
     setImportRows,
     setImportFileName,
@@ -46,6 +45,9 @@ export function TasksView() {
     newTask,
     navigate,
   } = useApp();
+  const unitProposals = monthTasks.filter(
+    (task: any) => task.status === "pending" && task.proposalSource === "unit",
+  );
 
   function openDeleteMonthDialog() {
     const count = monthTasks.length;
@@ -103,6 +105,13 @@ export function TasksView() {
           Bảng Excel lấy dữ liệu mới nhất theo tháng, khối và đơn vị đã chọn;
           gồm toàn bộ nhiệm vụ trong phạm vi này, kèm bảng tổng hợp theo đơn vị.
         </div>
+        {unitProposals.length > 0 && (
+          <div className="hint mb-4" role="status">
+            <Info />
+            Có {unitProposals.length} đề xuất nhiệm vụ từ các đơn vị đang chờ
+            duyệt. Mở dòng “Chờ duyệt giao việc” để kiểm tra và phê duyệt.
+          </div>
+        )}
         <section className="panel">
           <div className="panel-head">
             <h2>
@@ -110,23 +119,11 @@ export function TasksView() {
               {month.slice(0, 4)}
             </h2>
             <div className="actions">
-              <a
-                className="btn small"
-                href="/api/task-template-ready"
-                download="Mau-nhap-nhiem-vu-Nam-Sach.xlsx"
-                onClick={(e) => {
-                  e.preventDefault();
-                  downloadReadyTemplate();
-                }}
-              >
-                <Download />
-                Tải mẫu nhập Excel
-              </a>
               {office(user) && (
                 <>
                   <Btn small disabled={busy} onClick={downloadTemplate}>
                     <Download />
-                    Tải mẫu theo danh mục hiện tại
+                    Tải mẫu Excel gọn
                   </Btn>
                   <Btn
                     small

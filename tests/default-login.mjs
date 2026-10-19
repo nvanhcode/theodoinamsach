@@ -50,7 +50,22 @@ try {
     200,
   );
   const db = new DatabaseSync(path.join(dir, "nam-sach.sqlite"));
-  assert.equal(db.prepare("SELECT count(*) AS n FROM users").get().n, 1);
+  const usernames = db
+    .prepare("SELECT username FROM users ORDER BY username")
+    .all()
+    .map((row) => row.username);
+  assert.equal(usernames.length, 9);
+  assert.ok(usernames.includes("admin"));
+  assert.deepEqual(usernames.filter((username) => username !== "admin"), [
+    "bxdd",
+    "congan",
+    "hdnd",
+    "mttq",
+    "quansu",
+    "ubkt",
+    "ubnd",
+    "vpdu",
+  ]);
   assert.notEqual(
     db.prepare("SELECT password FROM users").get().password,
     "admin",
@@ -58,10 +73,10 @@ try {
   db.close();
   writeFileSync(
     "tests/DEFAULT-LOGIN-RESULTS.txt",
-    "PASS wrong password rejected; admin/admin creates initial Admin; real authenticated data access; repeat login does not duplicate; password stored as salted hash.\n",
+    "PASS wrong password rejected; admin/admin creates initial Admin; eight authorized reporting accounts provision once; authenticated data access; password stored as salted hash.\n",
   );
   console.log(
-    "PASS default admin/admin login, permissions, hash and repeat login",
+    "PASS default admin/admin login, eight reporting accounts, permissions and hash",
   );
 } finally {
   server.kill();

@@ -1,1 +1,1 @@
-PASS wrong password rejected; admin/admin creates initial Admin; real authenticated data access; repeat login does not duplicate; password stored as salted hash.
+PASS wrong password rejected; admin/admin creates initial Admin; eight authorized reporting accounts provision once; authenticated data access; password stored as salted hash.

@@ -6,7 +6,6 @@ import {
   Bell,
   UserRound,
   LogOut,
-  CalendarDays,
   RefreshCw,
   Download,
   Search,
@@ -33,6 +32,8 @@ import {
   orderedGroups,
 } from "@/components/common-ui";
 import { reportingOnly } from "@/lib/report-access";
+import { unreadNoticeRecipientCount } from "@/lib/notice-receipts";
+import { trackingMonthOptions } from "@/lib/tracking-periods";
 import { ReportingPortal } from "@/components/reporting/portal";
 import { LoginView } from "@/components/login-view";
 import { AppModals } from "@/components/app-modals";
@@ -79,6 +80,12 @@ export function AppLayout({
     navigate,
     setForm,
   } = useApp();
+  const currentMonth = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Ho_Chi_Minh",
+  })
+    .format(new Date())
+    .slice(0, 7);
+  const monthOptions = trackingMonthOptions(data, month, currentMonth);
 
   let pathname = "";
   try {
@@ -140,6 +147,14 @@ export function AppLayout({
       />
     );
   }
+
+  const ownUnreadNotices = data.notices.filter(
+    (notice: any) => !notice.readBy?.includes(user.id),
+  ).length;
+  const unreadForUnits = has(user, "admin")
+    ? unreadNoticeRecipientCount(data.notices, data.users)
+    : 0;
+  const unreadNoticeCount = ownUnreadNotices + unreadForUnits;
 
   const defaultTitle =
     currentPage === "tasks" && sub === "documents"
@@ -234,13 +249,19 @@ export function AppLayout({
               ))}
           </nav>
           <div className="sidebar-section mt-8">KỲ THEO DÕI</div>
-          <div className="mx-5 rounded-lg border border-white/20 px-4 py-3 text-sm text-rose-100">
-            <div className="flex items-center gap-2">
-              <CalendarDays size={16} />
-              Tháng {Number(month.slice(5))}/{month.slice(0, 4)}
-            </div>
-            <div className="mt-2 text-xs text-rose-200">
-              {period?.closed ? "Đã khóa sổ dữ liệu" : "Đang mở cập nhật"}
+          <div className="tracking-period-picker">
+            <Pick
+              label="Kỳ theo dõi"
+              value={month}
+              onChange={setMonth}
+              options={monthOptions}
+            />
+            <div
+              className={
+                "tracking-period-status " + (period?.closed ? "closed" : "open")
+              }
+            >
+              {period?.closed ? "Đã khóa sổ" : "Đang mở cập nhật"}
             </div>
           </div>
         </SidebarContent>
@@ -289,18 +310,16 @@ export function AppLayout({
             <button
               className="icon-button"
               aria-label="Thông báo"
+              title={
+                has(user, "admin")
+                  ? `Thông báo cá nhân và lượt đơn vị chưa đọc: ${unreadNoticeCount}`
+                  : `Thông báo chưa đọc: ${unreadNoticeCount}`
+              }
               onClick={() => navigate("notices")}
             >
               <Bell />
-              {data.notices.filter((n: any) => !n.readBy?.includes(user.id))
-                .length > 0 && (
-                <span className="count-badge">
-                  {
-                    data.notices.filter(
-                      (n: any) => !n.readBy?.includes(user.id),
-                    ).length
-                  }
-                </span>
+              {unreadNoticeCount > 0 && (
+                <span className="count-badge">{unreadNoticeCount}</span>
               )}
             </button>
             <div className="h-7 w-px bg-slate-200" />
@@ -351,15 +370,6 @@ export function AppLayout({
                   download={templateDownload.filename}
                 >
                   Bấm tại đây nếu trình duyệt chưa tải file
-                </a>{" "}
-                ·{" "}
-                <a
-                  className="underline"
-                  href="/api/task-template-ready"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Tải trực tiếp mẫu có sẵn
                 </a>
                 .
               </div>
@@ -374,21 +384,6 @@ export function AppLayout({
 
           {currentPage !== "admin" && (
             <div className="filters">
-              <Pick
-                label="Tháng"
-                value={month.slice(5)}
-                onChange={(v: string) => setMonth(month.slice(0, 4) + "-" + v)}
-                options={Array.from({ length: 12 }, (_, i) => [
-                  String(i + 1).padStart(2, "0"),
-                  "Tháng " + (i + 1),
-                ])}
-              />
-              <Pick
-                label="Năm"
-                value={month.slice(0, 4)}
-                onChange={(v: string) => setMonth(v + month.slice(4))}
-                options={Array.from({ length: 10 }, (_, i) => String(2026 + i))}
-              />
               {currentPage !== "documents" && (
                 <Pick
                   label="Khối cơ quan"

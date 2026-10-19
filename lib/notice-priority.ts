@@ -14,3 +14,10 @@ export function noticePriority(title = "") {
     return { rank: 3, label: "Phối hợp", tone: "coordination" };
   return { rank: 4, label: "Thông tin", tone: "normal" };
 }
+
+export const noticePriorityFor = (notice: any) =>
+  noticePriority(
+    notice?.category === "admin-directive"
+      ? notice.message || notice.title
+      : notice?.title || "",
+  );

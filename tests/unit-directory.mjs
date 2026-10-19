@@ -76,7 +76,7 @@ try {
   sql
     .prepare("DELETE FROM records WHERE id=?")
     .run("directory-2026-10-11-education-health-v3");
-  for (const id of ["unit-20", "unit-21", "unit-22"])
+  for (const id of ["directory-unit-20", "directory-unit-21", "directory-unit-22"])
     sql.prepare("DELETE FROM records WHERE id=?").run(id);
   sql
     .prepare(

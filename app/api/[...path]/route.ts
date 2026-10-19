@@ -2,7 +2,9 @@ import {
   reportingUnits,
   canReadReport,
   canReadNotice,
+  reportingOnly,
 } from "@/lib/report-access";
+import { canReadTaskComment } from "@/lib/comment-access";
 import { provisionUnitAccounts } from "@/lib/unit-accounts";
 import {
   readyTemplateBytes,
@@ -1021,7 +1023,9 @@ async function handle(req: Request, initialDefault = false) {
       return json(await insert("document", d, u));
     }
     if (path === "task" && method === "POST") {
-      check(office(u));
+      const unitProposal =
+        !office(u) && reportingOnly(u) && b.importAction === "submit" && !b.id;
+      check(office(u) || unitProposal);
       check(
         safe(b.title) &&
           b.unit &&
@@ -1043,6 +1047,14 @@ async function handle(req: Request, initialDefault = false) {
         "Đơn vị không hoạt động.",
         400,
       );
+      if (unitProposal) {
+        check(
+          u.units?.includes(b.unit),
+          "Đề xuất chỉ được gửi cho đơn vị của tài khoản đang đăng nhập.",
+          403,
+        );
+        check(!b.id, "Đơn vị chỉ được gửi đề xuất nhiệm vụ mới.", 403);
+      }
       const old = b.id ? await taskFor(u, b.id) : null;
       if (old) {
         check(
@@ -1176,6 +1188,12 @@ async function handle(req: Request, initialDefault = false) {
           approver(u),
           "Chỉ Chánh/Phó Văn phòng được giao nhiệm vụ từ Excel.",
         );
+      if (unitProposal)
+        check(
+          importAction === "submit" && !old,
+          "Đơn vị chỉ được gửi nhiệm vụ mới để admin phê duyệt.",
+          403,
+        );
       const importedStatus =
         importAction && (!old || ["draft", "pending"].includes(old.status))
           ? importAction === "assign"
@@ -1215,6 +1233,7 @@ async function handle(req: Request, initialDefault = false) {
         status: importedStatus,
         progress: old?.progress || 0,
         rootId: old?.rootId || null,
+        proposalSource: unitProposal ? "unit" : old?.proposalSource,
         restricted: !!b.restricted,
         allowedUsers: b.restricted
           ? Array.from(new Set([u.id, ...(b.allowedUsers || [])]))
@@ -1245,6 +1264,9 @@ async function handle(req: Request, initialDefault = false) {
                   taskId: rid,
                   title: importMessage,
                   readBy: [],
+                  ...(unitProposal
+                    ? { audienceUnits: [d.unit], category: "task-proposal" }
+                    : {}),
                 }),
                 1,
                 now(),
@@ -1627,7 +1649,11 @@ async function handle(req: Request, initialDefault = false) {
       const t = await taskFor(u, r.taskId);
       await assertOpen(t.month);
       check(r.version === b.version, "Báo cáo đã thay đổi.", 409);
-      check(approver(u) || (has(u, "head") && u.units.includes(r.unit)));
+      check(
+        approver(u),
+        "Báo cáo do Admin hoặc Phó Chánh Văn phòng phê duyệt.",
+        403,
+      );
       check(r.state === "submitted", "Chỉ xử lý báo cáo đã gửi.", 400);
       check(["confirm", "return"].includes(b.action));
       if (b.action === "return")
@@ -1788,8 +1814,17 @@ async function handle(req: Request, initialDefault = false) {
         has(u, "editor", "head", "partner") &&
         allowedPartnerUnits.length > 0 &&
         (t.partnerUpdateRequired ?? !!t.partners?.length);
+      const leadPartnerUnits = u.units?.includes(t.unit)
+        ? (t.partners || []).filter((unit: string) => unit !== t.unit)
+        : [];
+      const isLeadUpdate =
+        b.type === "coordination" &&
+        has(u, "editor", "head", "partner") &&
+        leadPartnerUnits.includes(b.unit) &&
+        (t.partnerUpdateRequired ?? !!t.partners?.length);
+      const isCoordinationUpdate = isPartnerUpdate || isLeadUpdate;
       check(
-        !isPartnerUpdate ||
+        !isCoordinationUpdate ||
           ["assigned", "working", "review", "returned"].includes(t.status),
         "Nhiệm vụ đã kết thúc, không thể gửi thêm thông tin phối hợp.",
         400,
@@ -1797,7 +1832,9 @@ async function handle(req: Request, initialDefault = false) {
       const coordinationUnit = isPartnerUpdate
         ? b.unit ||
           (allowedPartnerUnits.length === 1 ? allowedPartnerUnits[0] : "")
-        : "";
+        : isLeadUpdate
+          ? b.unit
+          : "";
       check(
         !isPartnerUpdate || !!coordinationUnit,
         "Chọn đúng đơn vị phối hợp gửi thông tin.",
@@ -1813,8 +1850,20 @@ async function handle(req: Request, initialDefault = false) {
           isPartnerUpdate ||
           has(u, "secretary", "standing", "chair", "council", "inspector"),
       );
-      const unit = coordinationUnit ? await record(coordinationUnit) : null;
-      const primaryUnit = isPartnerUpdate ? await record(t.unit) : null;
+      const senderUnitId = isPartnerUpdate
+        ? coordinationUnit
+        : isLeadUpdate
+          ? t.unit
+          : "";
+      const recipientUnitId = isPartnerUpdate
+        ? t.unit
+        : isLeadUpdate
+          ? coordinationUnit
+          : "";
+      const senderUnit = senderUnitId ? await record(senderUnitId) : null;
+      const recipientUnit = recipientUnitId
+        ? await record(recipientUnitId)
+        : null;
       const comment = await insert(
         "comment",
         {
@@ -1823,12 +1872,12 @@ async function handle(req: Request, initialDefault = false) {
           type: b.type === "direction" ? "direction" : "coordination",
           author: u.name,
           authorId: u.id,
-          ...(coordinationUnit
+          ...(isCoordinationUpdate
             ? {
-                unit: coordinationUnit,
-                unitName: unit?.name || coordinationUnit,
-                recipientUnit: t.unit,
-                recipientUnitName: primaryUnit?.name || t.unit,
+                unit: senderUnitId,
+                unitName: senderUnit?.name || senderUnitId,
+                recipientUnit: recipientUnitId,
+                recipientUnitName: recipientUnit?.name || recipientUnitId,
               }
             : {}),
         },
@@ -1838,21 +1887,32 @@ async function handle(req: Request, initialDefault = false) {
       );
       await notify(
         t,
-        coordinationUnit
-          ? `Thông tin phối hợp mới · ${unit?.name || coordinationUnit}: ${t.title}`
-          : "Có ý kiến mới: " + t.title,
+        isPartnerUpdate
+          ? `Thông tin phối hợp mới · ${senderUnit?.name || senderUnitId}: ${t.title}`
+          : isLeadUpdate
+            ? `Phản hồi của đơn vị chủ trì · ${senderUnit?.name || senderUnitId}: ${t.title}`
+            : "Có ý kiến mới: " + t.title,
         undefined,
-        isPartnerUpdate ? [t.unit] : undefined,
+        isCoordinationUpdate ? [recipientUnitId] : undefined,
       );
       return json(comment);
     }
     if (path === "comments" && method === "GET") {
       const tid = new URL(req.url).searchParams.get("id") || "";
-      await taskFor(u, tid);
+      const task = await taskFor(u, tid);
       const comments = (await records("comment")).filter(
-        (c: any) => c.taskId === tid,
+        (c: any) => c.taskId === tid && canReadTaskComment(u, task, c),
       );
-      const files = await all("SELECT * FROM files");
+      const files: any[] = [];
+      for (let i = 0; i < comments.length; i += 100) {
+        const ids = comments.slice(i, i + 100).map((comment: any) => comment.id);
+        files.push(
+          ...(await all(
+            `SELECT * FROM files WHERE parent_id IN (${ids.map(() => "?").join(",")})`,
+            ...ids,
+          )),
+        );
+      }
       return json(
         comments.map((comment: any) => ({
           ...comment,
@@ -2064,12 +2124,18 @@ async function handle(req: Request, initialDefault = false) {
         const allowedPartnerUnits = (task.partners || []).filter(
           (unit: string) => u.units?.includes(unit),
         );
+        const isPartnerMessage =
+          allowedPartnerUnits.includes(r.unit) && r.recipientUnit === task.unit;
+        const isLeadReply =
+          u.units?.includes(task.unit) &&
+          r.unit === task.unit &&
+          (task.partners || []).includes(r.recipientUnit);
         check(
           r.type === "coordination" &&
             r.authorId === u.id &&
             has(u, "editor", "head", "partner") &&
-            allowedPartnerUnits.includes(r.unit),
-          "Chỉ người gửi thông tin phối hợp được đính kèm tệp.",
+            (isPartnerMessage || isLeadReply),
+          "Chỉ người gửi thông tin phối hợp hoặc chủ trì mới được đính kèm tệp.",
         );
         check(
           ["assigned", "working", "review", "returned"].includes(task.status),
@@ -2316,7 +2382,11 @@ async function handle(req: Request, initialDefault = false) {
         );
       } else if (r.kind === "comment") {
         const task = await taskFor(u, r.taskId);
-        check(r.type === "coordination" && canSee(u, task));
+        check(
+          r.type === "coordination" &&
+            canSee(u, task) &&
+            canReadTaskComment(u, task, r),
+        );
       } else if (r.kind === "task") check(canSee(u, r));
       else
         check(

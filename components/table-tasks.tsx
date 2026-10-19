@@ -137,6 +137,9 @@ export function TableTasks({ rows, full = false }: any) {
                       NV-{t.month.replace("-", "")}-
                       {t.id.slice(0, 5).toUpperCase()}
                       {t.type === "carry" ? " · CHUYỂN TIẾP" : ""}
+                      {t.proposalSource === "unit"
+                        ? " · ĐỀ XUẤT TỪ ĐƠN VỊ"
+                        : ""}
                     </small>
                     {t.title}
                     <span className="block text-xs muted mt-1 font-normal">

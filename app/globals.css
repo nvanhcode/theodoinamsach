@@ -198,6 +198,50 @@ small {
   font-weight: bold;
 }
 
+.tracking-period-picker {
+  margin: 0 16px;
+  padding: 8px;
+  display: grid;
+  gap: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tracking-period-picker .pick {
+  width: 100%;
+  min-width: 0;
+  height: 36px !important;
+  border: 1px solid #efb5c0 !important;
+  border-radius: 6px !important;
+  color: #651b2a !important;
+  font-weight: 650;
+}
+
+.tracking-period-picker .pick:focus-visible {
+  outline: 3px solid #f9c74f;
+  outline-offset: 2px;
+}
+
+.tracking-period-status {
+  width: fit-content;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.tracking-period-status.open {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.tracking-period-status.closed {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 .side-menu {
   padding: 0 12px;
   display: flex;

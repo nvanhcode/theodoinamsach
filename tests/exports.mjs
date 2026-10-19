@@ -19,7 +19,10 @@ URL.createObjectURL = (b) => {
   blobs.push(b);
   return real(b);
 };
-globalThis.document = { createElement: () => ({ click() {} }) };
+globalThis.document = {
+  createElement: () => ({ click() {}, remove() {} }),
+  body: { appendChild() {} },
+};
 const fetchOrig = globalThis.fetch;
 globalThis.fetch = async (u) =>
   u === "/fonts/DejaVuSans.ttf"
@@ -39,7 +42,7 @@ const rows = Array.from({ length: 45 }, (_, i) => ({
   status: "working",
   progress: 65,
 }));
-for (const format of ["xlsx", "docx"]) {
+for (const format of ["xls", "docx"]) {
   await exportReport(
     format,
     rows,
@@ -49,15 +52,19 @@ for (const format of ["xlsx", "docx"]) {
     "month",
   );
   const bytes = Buffer.from(await blobs.pop().arrayBuffer());
-  assert.equal(bytes[0], 80);
-  assert.equal(bytes[1], 75);
+  if (format === "xls")
+    assert.deepEqual(
+      [...bytes.slice(0, 8)],
+      [208, 207, 17, 224, 161, 177, 26, 225],
+    );
+  else assert.deepEqual([...bytes.slice(0, 2)], [80, 75]);
   writeFileSync(".sites-runtime/export-test/report." + format, bytes);
-  if (format === "xlsx") {
+  if (format === "xls") {
     const X = await import("xlsx");
     const book = X.read(bytes);
     assert.equal(
       X.utils.sheet_to_json(book.Sheets["Bao cao"], { header: 1 }).length,
-      50,
+      52,
     );
   }
   console.log("PASS " + format + " real ZIP container, 45 rows");
@@ -109,7 +116,7 @@ assert.ok(Math.abs(as.L6.v - (14 * 60 + 20) / 1440) < 1e-8);
 assert.equal(as.R6.v, 0.75);
 assert.equal(as.N6.v, "Hằng ngày, trước 15:30");
 assert.equal(ab.Sheets["Tong hop don vi"].C5.v, 1);
-assert.equal(ab.Sheets["Tong hop don vi"].G5.v, 0.75);
+assert.equal(ab.Sheets["Tong hop don vi"].I5.v, 0.75);
 writeFileSync(".sites-runtime/export-test/assignment.xlsx", assignmentBytes);
 assignmentData.tasks[0].title = "Tên nhiệm vụ sửa lần hai";
 await exportAssignmentExcel(assignmentData, "2026-10");

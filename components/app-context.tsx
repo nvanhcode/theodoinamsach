@@ -104,7 +104,7 @@ export function AppProvider({
   const [error, setError] = useState("");
 
   const [page, setPage] = useState(initialRoute.page);
-  const [month, setMonth] = useState("2026-10");
+  const [month, setMonth] = useState(() => localDate().slice(0, 7));
   const [unit, setUnit] = useState(() => {
     if (typeof window !== "undefined") {
       return new URLSearchParams(window.location.search).get("unit") || "";
@@ -370,11 +370,19 @@ export function AppProvider({
     setError("");
     try {
       const result = await fn();
-      if (reload && user && !user.mustChange) await load();
       toast.success(message);
       if (close) {
         setModal("");
         setForm({});
+      }
+      // A committed save should finish the form immediately. Refreshing the
+      // dashboard is secondary and must not keep the dialog or busy state open.
+      if (reload && user && !user.mustChange) {
+        void load().catch((e: any) => {
+          toast.error(
+            "Đã lưu thành công nhưng chưa tải lại được dữ liệu: " + e.message,
+          );
+        });
       }
       return result;
     } catch (e: any) {
@@ -720,6 +728,12 @@ export function AppProvider({
           " nhiệm vụ" +
           (failed.length ? " · " + failed.length + " dòng chưa lưu." : "."),
       );
+      if (!failed.length) {
+        // Once every row is saved, close the import dialog immediately. The
+        // list refresh is secondary and should not leave a completed form open.
+        setModal("");
+        toast.success("Đã lưu hệ thống " + savedCount + " nhiệm vụ.");
+      }
       try {
         await load();
         setUnit("");
@@ -734,16 +748,13 @@ export function AppProvider({
           "Đã nhận kết quả lưu từng dòng; chưa tải lại được danh sách: " +
             e.message,
         );
+        toast.error("Đã lưu nhiệm vụ nhưng chưa tải lại được danh sách.");
         return;
       }
       if (failed.length)
         setError(
           failed.length +
             " dòng chưa lưu. Bấm Lưu hệ thống để thử lại các dòng này.",
-        );
-      else
-        toast.success(
-          "Đã lưu hệ thống và đồng bộ " + savedCount + " nhiệm vụ.",
         );
     } catch (e: any) {
       setError(e.message);

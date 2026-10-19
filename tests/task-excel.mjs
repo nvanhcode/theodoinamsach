@@ -31,6 +31,15 @@ const data = {
   periods: [],
   settings: {},
 };
+const legacyHeaders = [
+  "Mã nhập", "ID hệ thống", "Phiên bản", "Tháng theo dõi",
+  "Số, ký hiệu văn bản", "Nội dung nhiệm vụ", "Đơn vị chủ trì",
+  "Đơn vị phối hợp", "Người phụ trách", "Lãnh đạo theo dõi",
+  "Ngày giao", "Giờ giao", "Thời hạn hoàn thành", "Chế độ báo cáo",
+  "Giờ báo cáo", "Ngày báo cáo tuần", "Chỉ tiêu", "Đơn vị tính",
+  "Sản phẩm đầu ra", "Ghi chú", "Lý do điều chỉnh",
+  "Yêu cầu thông tin phối hợp",
+];
 const valid = [
   "NV001",
   "",
@@ -54,7 +63,7 @@ const valid = [
   "",
   "",
 ];
-const bytes = (rr, heads = taskImportHeaders) => {
+const bytes = (rr, heads = legacyHeaders) => {
   const wb = X.utils.book_new();
   X.utils.book_append_sheet(
     wb,
@@ -71,6 +80,26 @@ assert.equal(rows[0].payload.partnerUpdateRequired, true);
 assert.equal(rows[0].payload.assignedDate, "2026-10-02");
 assert.equal(rows[0].payload.reportHour, "15:30");
 assert.equal(rows[0].mode, "create");
+const simpleRow = [
+  "Đề xuất từ mẫu gọn",
+  "",
+  "Ban Xây dựng Đảng",
+  "",
+  "31/10/2026",
+  "",
+  "",
+  "NV202610_2_EXCEL001",
+];
+rows = await parseTaskExcel(
+  bytes([simpleRow], taskImportHeaders),
+  data,
+  "2026-10",
+  { defaultUnitId: "a", unitProposal: true },
+);
+assert.deepEqual(rows[0].errors, []);
+assert.equal(rows[0].payload.unit, "a");
+assert.equal(rows[0].payload.assignedDate, "2026-10-01");
+assert.equal(rows[0].payload.title, "Đề xuất từ mẫu gọn");
 const noPartnerUpdate = [...valid, "Không"];
 rows = await parseTaskExcel(bytes([noPartnerUpdate]), data, "2026-10");
 assert.equal(rows[0].payload.partnerUpdateRequired, false);

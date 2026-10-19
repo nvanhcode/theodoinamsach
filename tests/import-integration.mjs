@@ -19,7 +19,7 @@ const { parseTaskExcel, taskImportHeaders } = await import(
   pathToFileURL(process.cwd() + "/.sites-runtime/import-test/import.mjs")
 );
 const dir = mkdtempSync(path.join(tmpdir(), "ns-import-"));
-const port = 3191;
+const port = 30000 + randomBytes(2).readUInt16BE(0) % 20000;
 const token = randomBytes(24).toString("hex"),
   pass = "Import-test-" + randomBytes(16).toString("hex");
 const server = spawn(process.execPath, ["selfhost-dist/server/server.mjs"], {
@@ -28,6 +28,7 @@ const server = spawn(process.execPath, ["selfhost-dist/server/server.mjs"], {
     PORT: String(port),
     DATA_DIR: dir,
     SETUP_TOKEN: token,
+    TEST_MODE: "1",
     APP_ORIGIN: "http://localhost:" + port,
   },
   stdio: ["ignore", "pipe", "pipe"],
@@ -47,11 +48,11 @@ async function call(route, body, cookie = "", status = 200) {
   assert.equal(r.status, status, route + ": " + JSON.stringify(data));
   return { data, cookie: r.headers.get("set-cookie")?.split(";")[0] || cookie };
 }
-const workbook = (row) => {
+const workbook = (row, headers = taskImportHeaders) => {
   const wb = X.utils.book_new();
   X.utils.book_append_sheet(
     wb,
-    X.utils.aoa_to_sheet([taskImportHeaders, row]),
+    X.utils.aoa_to_sheet([headers, row]),
     "Nhap nhiem vu",
   );
   return X.write(wb, { type: "array", bookType: "xlsx" });
@@ -98,27 +99,14 @@ try {
   const clerk = await account("nhaplieu", "clerk", []);
   let data = (await call("data", undefined, admin)).data;
   const row = [
-    "IMPORT-001",
-    "",
-    "",
-    "2026-10",
-    "",
     "Nhiệm vụ Excel kiểm thử",
     "Phòng Kinh tế",
     "Ban Xây dựng Đảng",
-    "Cán bộ kiểm thử",
-    "",
     "02/10/2026",
-    "14:20",
     "31/10/2026",
-    "Hằng ngày",
-    "15:30",
-    "",
-    100,
-    "hồ sơ",
-    "Báo cáo",
     "",
     "",
+    "IMPORT-001",
   ];
   let parsed = await parseTaskExcel(workbook(row), data, "2026-10");
   assert.deepEqual(parsed[0].errors, []);
@@ -128,7 +116,7 @@ try {
   assert.equal(task.status, "assigned");
   for (const c of [admin, unit, partner]) {
     const d = (await call("data", undefined, c)).data;
-    assert.equal(d.tasks.find((t) => t.id === task.id).title, row[5]);
+    assert.equal(d.tasks.find((t) => t.id === task.id).title, row[0]);
     assert.ok(d.notices.some((n) => n.taskId === task.id));
   }
   assert.equal((await call("data", undefined, outsider)).data.tasks.length, 0);
@@ -157,10 +145,53 @@ try {
   );
   data = (await call("data", undefined, admin)).data;
   task = data.tasks.find((t) => t.id === task.id);
-  row[5] = "Cập nhật từ Excel";
-  row[1] = task.id;
-  row[2] = task.version;
-  parsed = await parseTaskExcel(workbook(row), data, "2026-10");
+  const legacyHeaders = [
+    "Mã nhập",
+    "ID hệ thống",
+    "Phiên bản",
+    "Tháng theo dõi",
+    "Số, ký hiệu văn bản",
+    "Nội dung nhiệm vụ",
+    "Đơn vị chủ trì",
+    "Đơn vị phối hợp",
+    "Người phụ trách",
+    "Lãnh đạo theo dõi",
+    "Ngày giao",
+    "Giờ giao",
+    "Thời hạn hoàn thành",
+    "Chế độ báo cáo",
+    "Giờ báo cáo",
+    "Ngày báo cáo tuần",
+    "Chỉ tiêu",
+    "Đơn vị tính",
+    "Sản phẩm đầu ra",
+    "Ghi chú",
+    "Lý do điều chỉnh",
+    "Yêu cầu thông tin phối hợp",
+  ];
+  const updateValues = {
+    "ID hệ thống": task.id,
+    "Phiên bản": task.version,
+    "Tháng theo dõi": "2026-10",
+    "Nội dung nhiệm vụ": "Cập nhật từ Excel",
+    "Đơn vị chủ trì": "Phòng Kinh tế",
+    "Đơn vị phối hợp": "Ban Xây dựng Đảng",
+    "Người phụ trách": "Cán bộ kiểm thử",
+    "Ngày giao": "02/10/2026",
+    "Giờ giao": "14:20",
+    "Thời hạn hoàn thành": "31/10/2026",
+    "Chế độ báo cáo": "Hằng ngày",
+    "Giờ báo cáo": "15:30",
+    "Chỉ tiêu": 100,
+    "Đơn vị tính": "hồ sơ",
+    "Sản phẩm đầu ra": "Báo cáo",
+  };
+  const updateRow = legacyHeaders.map((header) => updateValues[header] ?? "");
+  parsed = await parseTaskExcel(
+    workbook(updateRow, legacyHeaders),
+    data,
+    "2026-10",
+  );
   assert.deepEqual(parsed[0].errors, []);
   task = (
     await call("task", { ...parsed[0].payload, importAction: "assign" }, admin)
@@ -195,11 +226,16 @@ try {
     beforeNotices,
   );
   console.log("PASS stale version rejected without a spurious notice");
-  const r2 = [...row];
-  r2[0] = "IMPORT-002";
-  r2[1] = "";
-  r2[2] = "";
-  r2[5] = "Nhiệm vụ trình duyệt";
+  const r2 = [
+    "Nhiệm vụ trình duyệt",
+    "Phòng Kinh tế",
+    "",
+    "02/10/2026",
+    "31/10/2026",
+    "",
+    "",
+    "IMPORT-002",
+  ];
   parsed = await parseTaskExcel(
     workbook(r2),
     (await call("data", undefined, admin)).data,

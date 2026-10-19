@@ -30,7 +30,7 @@ const { saveImportRows } = await import(
   pathToFileURL(process.cwd() + "/.sites-runtime/save-import-test/save.mjs")
 );
 const dir = mkdtempSync(path.join(tmpdir(), "ns-template-")),
-  port = 3192,
+  port = 30000 + randomBytes(2).readUInt16BE(0) % 20000,
   origin = "http://localhost:" + port,
   token = randomBytes(24).toString("hex"),
   pass = "Download-test-" + randomBytes(16).toString("hex");
@@ -40,6 +40,7 @@ const server = spawn(process.execPath, ["selfhost-dist/server/server.mjs"], {
     PORT: String(port),
     DATA_DIR: dir,
     SETUP_TOKEN: token,
+    TEST_MODE: "1",
     APP_ORIGIN: origin,
   },
   stdio: ["ignore", "pipe", "pipe"],
@@ -124,6 +125,23 @@ try {
     const headers = X.utils.sheet_to_json(wb.Sheets["Nhap nhiem vu"], {
       header: 1,
     })[0];
+    assert.equal(headers.length, 8);
+    assert.deepEqual(headers, [
+      "Nội dung nhiệm vụ",
+      "Đơn vị chủ trì",
+      "Đơn vị phối hợp",
+      "Ngày giao",
+      "Thời hạn hoàn thành",
+      "Số, ký hiệu văn bản",
+      "Ghi chú",
+      "Mã nhập",
+    ]);
+    const blankRow = X.utils.sheet_to_json(wb.Sheets["Nhap nhiem vu"], {
+      header: 1,
+      defval: "",
+    })[1];
+    assert.ok(blankRow[7].startsWith("NV"));
+    assert.ok(blankRow.slice(0, 7).every((value) => value === ""));
     assert.ok(headers.includes("Nội dung nhiệm vụ"));
     assert.ok(headers.includes("Đơn vị chủ trì"));
     assert.ok(

@@ -138,7 +138,6 @@ export function AppModals() {
     change,
     open,
     unitName,
-    downloadReadyTemplate,
     downloadTemplate,
     readTaskFile,
     saveTaskImport,
@@ -1135,28 +1134,15 @@ export function AppModals() {
             <div>
               <div className="hint mb-4">
                 <Info />
-                Mã nhập dùng để thêm mới; ID hệ thống dùng để cập nhật. Phân
-                công theo đơn vị chủ trì và phối hợp. Chánh/Phó Văn phòng có thể
-                lưu và giao ngay đến đơn vị. Cán bộ nhập liệu trình duyệt; đơn
-                vị nhận nhiệm vụ sau khi phê duyệt. Các module dùng chung dữ
-                liệu đã lưu.
+                Chỉ cần nhập nội dung và hạn hoàn thành. Đơn vị phối hợp, ngày
+                giao, số văn bản và ghi chú là tùy chọn; mã dòng được tạo sẵn.
+                Chánh/Phó Văn phòng có thể giao ngay; cán bộ nhập liệu gửi chờ
+                duyệt. Đề xuất từ đơn vị cũng chuyển về đây để phê duyệt.
               </div>
               <div className="actions mb-4">
-                <a
-                  className="btn small"
-                  href="/api/task-template-ready"
-                  download="Mau-nhap-nhiem-vu-Nam-Sach.xlsx"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    downloadReadyTemplate();
-                  }}
-                >
-                  <Download />
-                  Tải mẫu nhập Excel
-                </a>
                 <Btn disabled={busy} onClick={downloadTemplate}>
                   <Download />
-                  Tải mẫu theo danh mục hiện tại
+                  Tải mẫu Excel gọn
                 </Btn>
                 <label className="excel-file-picker">
                   <strong>Chọn file Excel đã điền</strong>
@@ -1178,19 +1164,10 @@ export function AppModals() {
                 </label>
               </div>
               <div className="text-sm mb-4">
-                <a
-                  className="underline"
-                  href="/api/task-template-ready"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Tải trực tiếp mẫu Excel
-                </a>
                 <p className="muted mt-2">
-                  Điền từ dòng 2 trong trang Nhap nhiem vu, giữ nguyên tên cột.
-                  Sau khi chọn file, kiểm tra từng dòng rồi bấm Lưu hệ thống.
-                  Cách xử lý bên dưới quyết định giao ngay, trình duyệt hoặc lưu
-                  nháp.
+                  Điền từ dòng 2, không sửa cột mã ẩn. Sau khi chọn file, kiểm
+                  tra từng dòng rồi bấm Lưu hệ thống. Nếu tệp chưa tự tải, dùng
+                  liên kết tải xuất hiện bên dưới.
                 </p>
               </div>
               {importFileName && (

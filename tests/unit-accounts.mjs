@@ -23,6 +23,7 @@ const server = spawn(process.execPath, ["selfhost-dist/server/server.mjs"], {
     ...process.env,
     PORT: String(port),
     DATA_DIR: dir,
+    TEST_MODE: "1",
     APP_ORIGIN: origin,
   },
   stdio: ["ignore", "pipe", "pipe"],
@@ -116,7 +117,7 @@ try {
   );
   data = (await call("data", undefined, admin)).data;
   const bytes = readFileSync(
-    process.argv[2] || "../qa-input/Nam_Sach_Nhiem_vu_thang_10_2026_TEST.xlsx",
+    process.argv[2] || "tests/fixtures/nhiem-vu-thang-10.xlsx",
   );
   const rows = await parseTaskExcel(
     bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),

@@ -16,7 +16,11 @@ import {
 } from "@/components/common-ui";
 import { assignmentNoticeTitle } from "@/lib/report-access";
 import { pendingReportApprovals } from "@/lib/notice-queue";
-import { noticePriority } from "@/lib/notice-priority";
+import { noticePriorityFor } from "@/lib/notice-priority";
+import {
+  noticeRecipientStatus,
+  unreadNoticeRecipientCount,
+} from "@/lib/notice-receipts";
 
 export function NoticesView() {
   const [directiveText, setDirectiveText] = React.useState("");
@@ -60,9 +64,13 @@ export function NoticesView() {
     )
     .sort((a: any, b: any) => {
       const priority =
-        noticePriority(a.title).rank - noticePriority(b.title).rank;
+        noticePriorityFor(a).rank - noticePriorityFor(b).rank;
       return priority || b.updated.localeCompare(a.updated);
     });
+  const unreadUnitReads = unreadNoticeRecipientCount(
+    notices.filter((notice: any) => notice.audienceUnits?.length),
+    data.users,
+  );
 
   return (
     <>
@@ -264,6 +272,12 @@ export function NoticesView() {
             </div>
           </form>
         )}
+        {has(user, "admin") && (
+          <div className="hint mx-4 mt-4" role="status">
+            Còn {unreadUnitReads} lượt tài khoản đơn vị chưa đọc. Trạng thái
+            được cập nhật khi người nhận bấm “Đã đọc”.
+          </div>
+        )}
         {notices.map((n: any) => (
           <div className="notice" key={n.id}>
             <div className="notice-icon">
@@ -273,15 +287,15 @@ export function NoticesView() {
               <span
                 className={
                   "notice-priority-tag notice-priority-" +
-                  noticePriority(n.title).tone
+                  noticePriorityFor(n).tone
                 }
               >
-                {noticePriority(n.title).label}
+                {noticePriorityFor(n).label}
               </span>
               <h3
                 className={
                   "notice-priority-text notice-priority-text-" +
-                  noticePriority(n.title).tone
+                  noticePriorityFor(n).tone
                 }
               >
                 {assignmentNoticeTitle(n.title)}
@@ -292,6 +306,33 @@ export function NoticesView() {
                   <p className="muted text-sm">
                     Gửi đến: {(n.audienceUnits || []).map(unitName).join(", ")}
                   </p>
+                  {has(user, "admin") && (
+                    <details className="mt-2 text-sm">
+                      <summary className="cursor-pointer font-medium">
+                        Trạng thái đã đọc theo đơn vị
+                      </summary>
+                      <div className="mt-2 space-y-2">
+                        {noticeRecipientStatus(n, data.users).map((receipt: any) => (
+                          <div key={receipt.unitId}>
+                            <b>{unitName(receipt.unitId)}</b>
+                            {receipt.recipients.length ? (
+                              <>
+                                <span> · Đã đọc {receipt.read.length}/{receipt.recipients.length}</span>
+                                {receipt.read.length > 0 && (
+                                  <p className="muted">Đã đọc: {receipt.read.map((person: any) => person.name).join(", ")}</p>
+                                )}
+                                {receipt.unread.length > 0 && (
+                                  <p className="text-amber-700">Chưa đọc: {receipt.unread.map((person: any) => person.name).join(", ")}</p>
+                                )}
+                              </>
+                            ) : (
+                              <p className="text-amber-700">Chưa có tài khoản đang hoạt động được gán cho đơn vị.</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                 </>
               )}
               <p>

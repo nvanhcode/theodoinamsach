@@ -82,7 +82,9 @@ export const approver = (u: any) => has(u, "admin", "deputy");
 export function canSee(u: any, t: any) {
   if (t.restricted && !t.allowedUsers?.includes(u.id)) return false;
   if (office(u) || has(u, "secretary")) return true;
-  if (["draft", "pending"].includes(t.status)) return false;
+  if (t.status === "draft") return false;
+  if (t.status === "pending")
+    return t.author === u.id && u.units?.includes(t.unit);
   if (has(u, "standing") && ["Khối Đảng", "MTTQ và đoàn thể"].includes(t.group))
     return true;
   if (has(u, "chair") && ["UBND", "Giáo dục, y tế"].includes(t.group))
@@ -97,6 +99,7 @@ export function canSee(u: any, t: any) {
 export function canReport(u: any, t: any) {
   return (
     canSee(u, t) &&
+    !["draft", "pending"].includes(t.status) &&
     (office(u) ||
       (has(u, "editor", "head", "partner") && u.units?.includes(t.unit)))
   );

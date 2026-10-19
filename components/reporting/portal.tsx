@@ -27,7 +27,9 @@ import {
   assignmentNoticeTitle,
   isAdminRequestNotice,
 } from "@/lib/report-access";
-import { noticePriority } from "@/lib/notice-priority";
+import { noticePriorityFor } from "@/lib/notice-priority";
+import { buildTaskTemplate, parseTaskExcel } from "@/lib/task-excel";
+import { saveImportRows } from "@/lib/save-import";
 import {
   isPercentageProgressTask,
   normalizePercentageReport,
@@ -85,6 +87,9 @@ export function ReportingPortal({
     [coordinationUnit, setCoordinationUnit] = useState(""),
     [showHistory, setShowHistory] = useState(false),
     [password, setPassword] = useState({ old: "", password: "" });
+  const [proposalRows, setProposalRows] = useState<any[]>([]);
+  const [proposalFile, setProposalFile] = useState("");
+  const [proposalBusy, setProposalBusy] = useState(false);
   const [dialogViewport, setDialogViewport] = useState<React.CSSProperties>({});
   const seenDirectiveIds = useRef<Set<string> | null>(null);
   useEffect(() => {
@@ -112,14 +117,25 @@ export function ReportingPortal({
   const unitName = (id: string) =>
     data.units.find((u: any) => u.id === id)?.name || "—";
   const periodTasks = data.tasks.filter((t: any) => t.month === month);
+  const proposalTasks = periodTasks.filter(
+    (t: any) =>
+      t.status === "pending" &&
+      t.proposalSource === "unit" &&
+      t.author === user.id &&
+      user.units.includes(t.unit),
+  );
+  const assignedPeriodTasks = periodTasks.filter(
+    (t: any) => !["draft", "pending"].includes(t.status),
+  );
   const { lead: leadTasks, partner: partnerTasks } = splitAssignedTasks(
     user,
-    periodTasks,
+    assignedPeriodTasks,
   );
   const tasks = data.tasks
     .filter(
       (t: any) =>
         t.month === month &&
+        !["draft", "pending"].includes(t.status) &&
         (!search || t.title.toLowerCase().includes(search.toLowerCase())),
     )
     .sort((a: any, b: any) => a.due.localeCompare(b.due));
@@ -200,7 +216,11 @@ export function ReportingPortal({
     setCoordinationFiles([]);
     setCoordinationPendingId("");
     const partnerScopes = coordinationUnits(user, t);
-    setCoordinationUnit(partnerScopes[0] || "");
+    setCoordinationUnit(
+      user.units.includes(t.unit)
+        ? t.partners?.[0] || ""
+        : partnerScopes[0] || "",
+    );
     setCoordinationComments([]);
     if (
       requiresPartnerUpdate(t) &&
@@ -267,7 +287,7 @@ export function ReportingPortal({
           {!isLead
             ? "Xem tiến độ chủ trì"
             : active(t)
-              ? "Cập nhật báo cáo"
+              ? "Mở báo cáo gửi admin"
               : "Xem báo cáo"}
         </button>
         {canSendCoordination && (
@@ -293,11 +313,20 @@ export function ReportingPortal({
       submit,
     });
     setForm(r);
-    const fresh = await load();
-    if (fresh?.tasks && task) {
-      const updated = fresh.tasks.find((item: any) => item.id === task.id);
-      if (updated) setTask(updated);
-    }
+    // Saving is complete once the report API responds. Refresh task counters
+    // in the background so a slow dashboard reload cannot strand the form.
+    void load()
+      .then((fresh: any) => {
+        if (fresh?.tasks && task) {
+          const updated = fresh.tasks.find((item: any) => item.id === task.id);
+          if (updated) setTask(updated);
+        }
+      })
+      .catch((e: any) =>
+        setError(
+          "Đã lưu báo cáo nhưng chưa làm mới được tiến độ: " + e.message,
+        ),
+      );
     return r;
   }
   async function save(submit: boolean) {
@@ -325,7 +354,7 @@ export function ReportingPortal({
         !coordinationText.trim() &&
         !coordinationFiles.length)
     ) {
-      setError("Nhập nội dung hoặc chọn tệp cần gửi đơn vị chủ trì.");
+      setError("Nhập nội dung hoặc chọn tệp cần gửi.");
       return;
     }
     if (!coordinationPendingId && coordinationFiles.length > 3) {
@@ -341,52 +370,86 @@ export function ReportingPortal({
     setMessage("");
     let sentCommentId = coordinationPendingId;
     let uploaded = 0;
+    let remainingFiles: File[] = [];
+    const isLead = user.units.includes(task.unit);
+    const filesToSend = coordinationFiles;
+    const recipientUnit =
+      coordinationUnit ||
+      (isLead ? task.partners?.[0] : coordinationUnits(user, task)[0]) ||
+      "";
     try {
       if (!sentCommentId) {
         const comment = await api("comment", {
           taskId: task.id,
-          text: coordinationText.trim() || "Đã gửi tệp phối hợp.",
+          text:
+            coordinationText.trim() ||
+            (isLead ? "Đã gửi tệp trao đổi phối hợp." : "Đã gửi tệp phối hợp."),
           type: "coordination",
-          unit: coordinationUnit,
+          unit: recipientUnit,
         });
         sentCommentId = comment.id;
         setCoordinationPendingId(sentCommentId);
       }
-      for (const file of coordinationFiles) {
-        const fd = new FormData();
-        fd.set("parentId", sentCommentId);
-        fd.set("file", file);
-        const response = await fetch("/api/upload", {
-          method: "POST",
-          credentials: "include",
-          headers: { "X-NS-Request": "1" },
-          body: fd,
-        });
-        const result: any = await response.json();
-        if (!response.ok) throw new Error(file.name + ": " + result.error);
-        uploaded++;
-      }
-      const freshComments = await api(
-        "comments?id=" + encodeURIComponent(task.id),
+      const results = await Promise.allSettled(
+        filesToSend.map(async (file) => {
+          const fd = new FormData();
+          fd.set("parentId", sentCommentId);
+          fd.set("file", file);
+          const response = await fetch("/api/upload", {
+            method: "POST",
+            credentials: "include",
+            headers: { "X-NS-Request": "1" },
+            body: fd,
+          });
+          const result: any = await response.json();
+          if (!response.ok) throw new Error(file.name + ": " + result.error);
+          return file;
+        }),
       );
-      setCoordinationComments(freshComments);
+      remainingFiles = results.flatMap((result, index) =>
+        result.status === "rejected" ? [filesToSend[index]] : [],
+      );
+      uploaded = filesToSend.length - remainingFiles.length;
+      if (remainingFiles.length) {
+        const failures = results.flatMap((result, index) =>
+          result.status === "rejected"
+            ? [
+                `${filesToSend[index].name}: ${result.reason?.message || "tải lên thất bại"}`,
+              ]
+            : [],
+        );
+        throw new Error(
+          `Đã gửi nội dung phối hợp; ${uploaded}/${filesToSend.length} tệp đã tải lên. Còn lỗi: ${failures.join("; ")}. Bấm gửi lại để tải tiếp.`,
+        );
+      }
       setCoordinationText("");
       setCoordinationFiles([]);
       setCoordinationPendingId("");
-      setMessage(
-        coordinationFiles.length
+      const successMessage = isLead
+        ? filesToSend.length
+          ? `Đã gửi thông tin phối hợp và ${uploaded} tệp đến ${unitName(recipientUnit)}.`
+          : `Đã gửi thông tin phối hợp đến ${unitName(recipientUnit)}.`
+        : filesToSend.length
           ? `Đã gửi thông tin và ${uploaded} tệp phối hợp đến đơn vị chủ trì.`
-          : "Đã gửi thông tin phối hợp đến đơn vị chủ trì.",
+          : "Đã gửi thông tin phối hợp đến đơn vị chủ trì.";
+      toast.success(successMessage);
+      setTask(null);
+      // Close the send dialog as soon as the recipient has accepted the
+      // message and files. Refreshing the dashboard is secondary.
+      void load().catch((e: any) =>
+        toast.error(
+          "Đã gửi thành công nhưng chưa làm mới được dữ liệu: " + e.message,
+        ),
       );
-      await load();
     } catch (e: any) {
       if (sentCommentId) {
         setCoordinationPendingId(sentCommentId);
-        setCoordinationFiles((files) => files.slice(uploaded));
-        const freshComments = await api(
-          "comments?id=" + encodeURIComponent(task.id),
-        ).catch(() => null);
-        if (freshComments) setCoordinationComments(freshComments);
+        setCoordinationFiles(
+          remainingFiles.length ? remainingFiles : filesToSend,
+        );
+        void api("comments?id=" + encodeURIComponent(task.id))
+          .then(setCoordinationComments)
+          .catch(() => {});
       }
       setError(e.message);
     } finally {
@@ -505,8 +568,7 @@ export function ReportingPortal({
         periodTasks.some((t: any) => t.id === n.taskId),
     )
     .sort((a: any, b: any) => {
-      const priority =
-        noticePriority(a.title).rank - noticePriority(b.title).rank;
+      const priority = noticePriorityFor(a).rank - noticePriorityFor(b).rank;
       return priority || b.updated.localeCompare(a.updated);
     });
   const adminRequests = portalNotices.filter(isAdminRequestNotice);
@@ -609,8 +671,83 @@ export function ReportingPortal({
   const unreadNoticeCount = portalNotices.filter(
     (notice: any) => !notice.readBy?.includes(user.id),
   ).length;
+  async function downloadProposalTemplate() {
+    setError("");
+    setProposalBusy(true);
+    try {
+      const defaultUnitId = user.units.length === 1 ? user.units[0] : "";
+      const bytes = await buildTaskTemplate(data, month, { defaultUnitId });
+      const url = URL.createObjectURL(
+        new Blob([bytes as BlobPart], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }),
+      );
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `Mau-de-xuat-nhiem-vu-${month}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setError(e.message || "Chưa tạo được mẫu Excel.");
+    } finally {
+      setProposalBusy(false);
+    }
+  }
+  async function readProposalFile(file?: File) {
+    if (!file) return;
+    setError("");
+    setProposalRows([]);
+    setProposalFile(file.name);
+    setProposalBusy(true);
+    try {
+      if (!/\.xlsx?$/i.test(file.name) || file.size > 5 * 1024 * 1024)
+        throw new Error("Chọn tệp Excel XLSX/XLS, dung lượng tối đa 5 MB.");
+      const fresh = await load();
+      const rows = await parseTaskExcel(
+        await file.arrayBuffer(),
+        fresh,
+        month,
+        {
+          defaultUnitId: user.units.length === 1 ? user.units[0] : "",
+          unitProposal: true,
+        },
+      );
+      setProposalRows(rows);
+      setMessage(
+        `Đã đọc ${rows.length} dòng. Kiểm tra lỗi trước khi gửi admin phê duyệt.`,
+      );
+    } catch (e: any) {
+      setError(e.message || "Không đọc được tệp Excel.");
+    } finally {
+      setProposalBusy(false);
+    }
+  }
+  async function sendTaskProposals() {
+    if (!proposalRows.length || proposalBusy) return;
+    setError("");
+    setProposalBusy(true);
+    try {
+      const next = await saveImportRows(
+        proposalRows,
+        (payload) => api("task", { ...payload, importAction: "submit" }),
+        setProposalRows,
+      );
+      setProposalRows(next);
+      const saved = next.filter((row) => row.saved).length;
+      if (saved) {
+        setMessage(
+          `Đã gửi ${saved}/${next.length} đề xuất đến trang admin. Đề xuất chưa được tính là nhiệm vụ giao cho đến khi phê duyệt.`,
+        );
+        await load();
+      }
+    } catch (e: any) {
+      setError(e.message || "Chưa gửi được đề xuất.");
+    } finally {
+      setProposalBusy(false);
+    }
+  }
   const renderNotice = (n: any) => {
-    const priority = noticePriority(n.title);
+    const priority = noticePriorityFor(n);
     const noticeTask = periodTasks.find((t: any) => t.id === n.taskId);
     return (
       <article className="panel unit-task-card" key={n.id}>
@@ -745,6 +882,8 @@ export function ReportingPortal({
                   setMonth(e.target.value);
                   setTaskFilter("all");
                   setUnitFilter("");
+                  setProposalRows([]);
+                  setProposalFile("");
                 }}
               />
             </label>
@@ -771,6 +910,124 @@ export function ReportingPortal({
         )}
         {tab === "tasks" && (
           <>
+            <section className="panel unit-task-card mb-4">
+              <div className="panel-head">
+                <div>
+                  <h2>Đề xuất nhiệm vụ mới</h2>
+                  <p className="muted text-sm">
+                    Tải mẫu gọn, nhập nội dung và hạn. Đề xuất được chuyển về
+                    admin phê duyệt, chưa tính là nhiệm vụ được giao.
+                  </p>
+                </div>
+                <button
+                  className="btn small"
+                  disabled={proposalBusy}
+                  onClick={downloadProposalTemplate}
+                >
+                  Tải mẫu Excel gọn
+                </button>
+              </div>
+              <label className="excel-file-picker">
+                <strong>Chọn tệp Excel để gửi admin</strong>
+                <span>
+                  Kỳ {month.slice(5)}/{month.slice(0, 4)} · XLSX/XLS · tối đa 5
+                  MB
+                </span>
+                <input
+                  aria-label="Chọn Excel đề xuất nhiệm vụ"
+                  type="file"
+                  accept=".xlsx,.xls"
+                  disabled={proposalBusy}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    void readProposalFile(file);
+                  }}
+                />
+              </label>
+              {proposalFile && (
+                <p className="muted text-sm mt-2">Tệp: {proposalFile}</p>
+              )}
+              {proposalRows.length > 0 && (
+                <>
+                  <div className="hint mt-3">
+                    {proposalRows.length} dòng ·{" "}
+                    {proposalRows.filter((row) => !row.errors.length).length}{" "}
+                    hợp lệ ·{" "}
+                    {proposalRows.filter((row) => row.errors.length).length} cần
+                    sửa
+                  </div>
+                  <div className="unit-task-list mt-3">
+                    {proposalRows.map((row) => (
+                      <article className="panel unit-task-card" key={row.row}>
+                        <b>
+                          Dòng {row.row}:{" "}
+                          {row.payload.title || "Chưa có nội dung"}
+                        </b>
+                        <p className="muted text-sm">
+                          Chủ trì: {unitName(row.payload.unit)} · Hạn:{" "}
+                          {dates(row.payload.due)}
+                          {row.payload.partners?.length
+                            ? ` · Phối hợp: ${row.payload.partners.map(unitName).join(", ")}`
+                            : ""}
+                        </p>
+                        {row.errors.length > 0 && (
+                          <p className="text-red-700 text-sm">
+                            {row.errors.join("; ")}
+                          </p>
+                        )}
+                        {row.saved && (
+                          <p className="text-green-700 text-sm">
+                            Đã gửi admin phê duyệt.
+                          </p>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                  <div className="actions mt-3">
+                    <button
+                      className="btn primary"
+                      disabled={
+                        proposalBusy ||
+                        proposalRows.some((row) => row.errors.length > 0) ||
+                        proposalRows.every((row) => row.saved)
+                      }
+                      onClick={sendTaskProposals}
+                    >
+                      {proposalBusy ? "Đang xử lý…" : "Gửi admin phê duyệt"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </section>
+            {proposalTasks.length > 0 && (
+              <section className="panel unit-task-card mb-4">
+                <div className="panel-head">
+                  <div>
+                    <h2>Đề xuất chờ admin duyệt</h2>
+                    <p className="muted text-sm">
+                      Đề xuất chỉ trở thành nhiệm vụ sau khi được phê duyệt
+                      giao.
+                    </p>
+                  </div>
+                  <span>{proposalTasks.length}</span>
+                </div>
+                <div className="unit-task-list">
+                  {proposalTasks.map((item: any) => (
+                    <article className="panel unit-task-card" key={item.id}>
+                      <span className="notice-priority-tag notice-priority-review">
+                        Chờ admin duyệt
+                      </span>
+                      <h3>{item.title}</h3>
+                      <p className="muted text-sm">
+                        Hạn đề xuất: {dates(item.due)} · Gửi{" "}
+                        {dates(item.updated)}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
             {(taskFilter !== "all" || unitFilter) && (
               <div className="hint">
                 Đang xem:{" "}
@@ -806,7 +1063,10 @@ export function ReportingPortal({
                   <header>
                     <div>
                       <h2>Nhiệm vụ chủ trì</h2>
-                      <p>Đơn vị cập nhật tiến độ và gửi báo cáo.</p>
+                      <p>
+                        Đơn vị cập nhật tiến độ, gửi báo cáo lên admin phê
+                        duyệt.
+                      </p>
                     </div>
                     <span
                       aria-label={`${visibleLeadTasks.length} nhiệm vụ chủ trì`}
@@ -1255,11 +1515,14 @@ export function ReportingPortal({
           </button>
           <DialogHeader>
             <DialogTitle>
-              {readOnly ? "Xem báo cáo" : "Cập nhật báo cáo"}
+              {readOnly ? "Xem báo cáo gửi admin" : "Báo cáo tiến độ gửi admin"}
             </DialogTitle>
             <DialogDescription>
-              Nhập kết quả, bổ sung minh chứng phù hợp và gửi đến người xác
-              nhận.
+              {task && user.units.includes(task.unit)
+                ? "Báo cáo tiến độ của đơn vị chủ trì được gửi lên admin để phê duyệt."
+                : task
+                  ? "Bạn đang xem tiến độ và báo cáo do đơn vị chủ trì gửi lên admin."
+                  : "Báo cáo chính thức của đơn vị chủ trì được gửi lên admin để phê duyệt."}
             </DialogDescription>
           </DialogHeader>
           {task && (
@@ -1319,7 +1582,12 @@ export function ReportingPortal({
                       )
                       .map((comment: any) => (
                         <article key={comment.id}>
-                          <b>{comment.unitName || comment.author}</b>
+                          <b>
+                            {comment.unitName || comment.author}
+                            {comment.recipientUnitName
+                              ? ` → ${comment.recipientUnitName}`
+                              : ""}
+                          </b>
                           <small>{dates(comment.updated)}</small>
                           <p className="whitespace-pre-wrap">{comment.text}</p>
                           {!!comment.files?.length && (
@@ -1347,6 +1615,9 @@ export function ReportingPortal({
                     ) && <p className="muted">Chưa có thông tin phối hợp.</p>}
                   </div>
                   {requiresPartnerUpdate(task) &&
+                    ["assigned", "working", "review", "returned"].includes(
+                      task.status,
+                    ) &&
                     coordinationUnits(user, task).length > 0 && (
                       <div className="unit-coordination-compose">
                         {coordinationUnits(user, task).length > 1 && (
@@ -1405,6 +1676,7 @@ export function ReportingPortal({
                         </label>
                         <button
                           className="btn primary"
+                          type="button"
                           disabled={
                             busy ||
                             (!coordinationPendingId &&
@@ -1433,7 +1705,8 @@ export function ReportingPortal({
                     <h2>Thông tin từ đơn vị phối hợp</h2>
                     <p>
                       Các ý kiến dưới đây được gửi trực tiếp về{" "}
-                      <b>{unitName(task.unit)}</b> để tổng hợp.
+                      <b>{unitName(task.unit)}</b> để tổng hợp vào báo cáo gửi
+                      admin.
                     </p>
                     <div className="unit-coordination-history">
                       {coordinationComments
@@ -1443,7 +1716,12 @@ export function ReportingPortal({
                         )
                         .map((comment: any) => (
                           <article key={comment.id}>
-                            <b>{comment.unitName || comment.author}</b>
+                            <b>
+                              {comment.unitName || comment.author}
+                              {comment.recipientUnitName
+                                ? ` → ${comment.recipientUnitName}`
+                                : ""}
+                            </b>
                             <small>{dates(comment.updated)}</small>
                             <p className="whitespace-pre-wrap">
                               {comment.text}
@@ -1489,6 +1767,78 @@ export function ReportingPortal({
                         </p>
                       )}
                     </div>
+                    {user.units.includes(task.unit) &&
+                      requiresPartnerUpdate(task) &&
+                      ["assigned", "working", "review", "returned"].includes(
+                        task.status,
+                      ) &&
+                      !!task.partners?.length && (
+                        <div className="unit-coordination-compose">
+                          {task.partners.length > 1 && (
+                            <label className="form-field">
+                              <span>Đơn vị nhận phản hồi</span>
+                              <select
+                                value={coordinationUnit}
+                                onChange={(e) =>
+                                  setCoordinationUnit(e.target.value)
+                                }
+                              >
+                                {task.partners.map((unitId: string) => (
+                                  <option value={unitId} key={unitId}>
+                                    {unitName(unitId)}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          )}
+                          <label className="form-field">
+                            <span>Nội dung trao đổi với đơn vị phối hợp</span>
+                            <textarea
+                              rows={3}
+                              value={coordinationText}
+                              onChange={(e) =>
+                                setCoordinationText(e.target.value)
+                              }
+                              placeholder="Trao đổi hoặc hướng dẫn đơn vị phối hợp bổ sung thông tin…"
+                            />
+                          </label>
+                          <label className="form-field">
+                            <span>Tệp trao đổi (tối đa 3 tệp, 25 MB/tệp)</span>
+                            <input
+                              type="file"
+                              multiple
+                              accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp,.mp4,.webm,.zip,.rar,.7z"
+                              onChange={(event) =>
+                                setCoordinationFiles(
+                                  Array.from(event.target.files || []),
+                                )
+                              }
+                            />
+                            {!!coordinationFiles.length && (
+                              <small>
+                                {coordinationFiles
+                                  .map((file) => file.name)
+                                  .join(" · ")}
+                              </small>
+                            )}
+                          </label>
+                          <button
+                            className="btn primary"
+                            type="button"
+                            disabled={
+                              busy ||
+                              (!coordinationPendingId &&
+                                !coordinationText.trim() &&
+                                !coordinationFiles.length)
+                            }
+                            onClick={sendCoordination}
+                          >
+                            {coordinationPendingId
+                              ? "Gửi tiếp tệp còn lại"
+                              : `Gửi thông tin phối hợp đến ${unitName(coordinationUnit || task.partners[0])}`}
+                          </button>
+                        </div>
+                      )}
                   </section>
                 )}
               {canReport(user, task) && (
@@ -1743,7 +2093,7 @@ export function ReportingPortal({
                     disabled={busy || !form.result?.trim()}
                     onClick={() => save(true)}
                   >
-                    Gửi báo cáo
+                    Gửi báo cáo lên admin
                   </button>
                 </div>
               )}

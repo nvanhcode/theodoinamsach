@@ -16,6 +16,7 @@ PASS 13d Mã nhập Excel không tạo trùng nhiệm vụ
 PASS 14 Đơn vị chưa thấy nhiệm vụ nháp
 PASS 15 Văn thư trình nhiệm vụ, Phó Văn phòng duyệt giao việc
 PASS 16 Định tuyến đến đúng đơn vị, liên kết nguồn
+PASS 16b Đơn vị gửi đề xuất nhiệm vụ về admin để duyệt
 PASS 17 Đơn vị ngoài phạm vi không thấy dữ liệu
 PASS 18 Chặn chỉnh sửa nhiệm vụ gốc từ đơn vị
 PASS 19 Sửa và lưu đồng bộ
@@ -53,5 +54,5 @@ PASS 46 Đơn vị cấp dưới chủ trì báo cáo, đơn vị phối hợp c
 PASS 47 Chỉ Admin được xóa nhiệm vụ hàng loạt
 PASS 48 Xóa theo tháng dọn báo cáo, tệp và giữ nguyên tháng khác
 PASS 49 Từ chối yêu cầu xóa tất cả tháng và giữ dữ liệu
-TOTAL 55 passed
+TOTAL 56 passed
 Runtime: Node self-host, SQLite and real HTTP requests; no browser UI automation.

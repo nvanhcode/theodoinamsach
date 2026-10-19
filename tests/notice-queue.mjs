@@ -107,3 +107,47 @@ assert.equal(noticePriority("Yêu cầu báo cáo tháng").rank, 0);
 assert.equal(noticePriority("Đề nghị cập nhật tiến độ").rank, 0);
 assert.equal(noticePriority("Thông tin phối hợp mới").tone, "coordination");
 console.log("PASS shared notice priority order and color categories");
+
+await build({
+  configFile: false,
+  build: {
+    ssr: "lib/notice-receipts.ts",
+    outDir: ".sites-runtime/notice-receipts-test",
+    rollupOptions: { output: { entryFileNames: "notice-receipts.mjs" } },
+  },
+});
+const { noticeRecipientStatus, unreadNoticeRecipientCount } = await import(
+  pathToFileURL(
+    process.cwd() +
+      "/.sites-runtime/notice-receipts-test/notice-receipts.mjs",
+  )
+);
+const receiptUsers = [
+  { id: "a1", name: "Đơn vị A", units: ["a"], active: true },
+  { id: "a2", name: "Đầu mối A 2", units: ["a"], active: true },
+  { id: "b1", name: "Đơn vị B", units: ["b"], active: true },
+  { id: "inactive", units: ["b"], active: false },
+];
+const receiptNotice = {
+  audienceUnits: ["a", "b"],
+  readBy: ["a1"],
+};
+assert.equal(unreadNoticeRecipientCount([receiptNotice], receiptUsers), 2);
+assert.deepEqual(
+  noticeRecipientStatus(receiptNotice, receiptUsers).map((row) => [
+    row.read.length,
+    row.unread.length,
+  ]),
+  [
+    [1, 1],
+    [0, 1],
+  ],
+);
+assert.equal(
+  unreadNoticeRecipientCount(
+    [{ ...receiptNotice, readBy: ["a1", "a2", "b1"] }],
+    receiptUsers,
+  ),
+  0,
+);
+console.log("PASS notification receipt counts decrease per active recipient");

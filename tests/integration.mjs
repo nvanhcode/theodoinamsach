@@ -58,6 +58,7 @@ async function test(name, fn) {
 let admin,
   unitUser,
   partnerUser,
+  otherPartnerUser,
   head,
   outsider,
   task,
@@ -176,7 +177,7 @@ try {
           documentId: doc.id,
           month: "2026-10",
           unit: "unit-8",
-          partners: ["unit-1"],
+          partners: ["unit-1", "unit-12"],
           assignedDate: "2026-10-01",
           due: "2026-10-31",
           owner: "Kiểm thử",
@@ -307,9 +308,31 @@ try {
         password: pass + "-changed",
       })
     ).cookie;
+    otherPartnerUser = (
+      await call("login", { username: "testmttq", password: pass })
+    ).cookie;
+    await call(
+      "password",
+      { old: pass, password: pass + "-changed" },
+      otherPartnerUser,
+    );
+    otherPartnerUser = (
+      await call("login", {
+        username: "testmttq",
+        password: pass + "-changed",
+      })
+    ).cookie;
     const partnerData = (await call("data", undefined, partnerUser)).data;
     assert.equal(partnerData.tasks[0].id, task.id);
     assert.equal(partnerData.tasks[0].progress, task.progress);
+    assert.ok(
+      partnerData.notices.some(
+        (notice) =>
+          notice.taskId === task.id &&
+          notice.title.startsWith("Cập nhật xử lý nhiệm vụ"),
+      ),
+      "Manual task assignment must notify both the lead and partner pages.",
+    );
     await call(
       "report",
       {
@@ -327,6 +350,7 @@ try {
         {
           taskId: task.id,
           type: "coordination",
+          unit: "unit-1",
           text: "Đã gửi thông tin phối hợp đến đơn vị chủ trì.",
         },
         partnerUser,
@@ -387,6 +411,20 @@ try {
           item.files?.some((file) => file.id === coordinationFile.id),
       ),
     );
+    assert.ok(
+      !(
+        await call("comments?id=" + task.id, undefined, otherPartnerUser)
+      ).data.some((item) => item.id === coordination.id),
+      "A different partner unit must not see another unit's exchange.",
+    );
+    const otherPartnerDownload = await fetch(
+      "http://localhost:" +
+        port +
+        "/api/file?id=" +
+        encodeURIComponent(coordinationFile.id),
+      { headers: { cookie: otherPartnerUser } },
+    );
+    assert.equal(otherPartnerDownload.status, 403);
     const leadDownload = await fetch(
       "http://localhost:" +
         port +
@@ -406,6 +444,75 @@ try {
       adminComments.some((item) =>
         item.files?.some((file) => file.id === coordinationFile.id),
       ),
+    );
+    const leadReply = (
+      await call(
+        "comment",
+        {
+          taskId: task.id,
+          type: "coordination",
+          unit: "unit-1",
+          text: "Đơn vị chủ trì đã tiếp nhận, đề nghị bổ sung căn cứ pháp lý.",
+        },
+        unitUser,
+      )
+    ).data;
+    assert.equal(leadReply.unit, task.unit);
+    assert.equal(leadReply.recipientUnit, "unit-1");
+    const replyUpload = new FormData();
+    replyUpload.set("parentId", leadReply.id);
+    replyUpload.set(
+      "file",
+      new Blob(["%PDF-1.4\nPhản hồi của đơn vị chủ trì"], {
+        type: "application/pdf",
+      }),
+      "phan-hoi-chu-tri.pdf",
+    );
+    const replyUploadResponse = await fetch(
+      "http://localhost:" + port + "/api/upload",
+      {
+        method: "POST",
+        headers: { cookie: unitUser, "X-NS-Request": "1" },
+        body: replyUpload,
+      },
+    );
+    assert.equal(replyUploadResponse.status, 200);
+    const replyFile = await replyUploadResponse.json();
+    const replyNotice = (
+      await call("data", undefined, partnerUser)
+    ).data.notices.find(
+      (notice) =>
+        notice.title.startsWith("Phản hồi của đơn vị chủ trì") &&
+        notice.taskId === task.id,
+    );
+    assert.ok(replyNotice);
+    assert.deepEqual(replyNotice.audienceUnits, ["unit-1"]);
+    assert.ok(
+      !(await call("data", undefined, unitUser)).data.notices.some(
+        (notice) => notice.id === replyNotice.id,
+      ),
+      "The lead reply notification should go to the selected partner unit.",
+    );
+    assert.ok(
+      (await call("comments?id=" + task.id, undefined, partnerUser)).data.some(
+        (item) =>
+          item.id === leadReply.id &&
+          item.recipientUnit === "unit-1" &&
+          item.unit === task.unit &&
+          item.files?.some((file) => file.id === replyFile.id),
+      ),
+    );
+    const partnerDownload = await fetch(
+      "http://localhost:" +
+        port +
+        "/api/file?id=" +
+        encodeURIComponent(replyFile.id),
+      { headers: { cookie: partnerUser } },
+    );
+    assert.equal(partnerDownload.status, 200);
+    assert.equal(
+      await partnerDownload.text(),
+      "%PDF-1.4\nPhản hồi của đơn vị chủ trì",
     );
     const unauthorizedDownload = await fetch(
       "http://localhost:" +
@@ -473,9 +580,79 @@ try {
         .find((notice) => notice.id === directive.data.id)
         .readBy.includes(unitAfterRead.user.id),
     );
+    const adminAfterUnitRead = (await call("data", undefined, admin)).data;
+    assert.ok(
+      adminAfterUnitRead.notices
+        .find((notice) => notice.id === directive.data.id)
+        .readBy.includes(unitAfterRead.user.id),
+      "Admin page should receive the unit read receipt.",
+    );
+    await call("notice", { id: directive.data.id }, admin);
+    const unitAfterAdminRead = (await call("data", undefined, unitUser)).data;
+    const sharedRead = unitAfterAdminRead.notices.find(
+      (notice) => notice.id === directive.data.id,
+    ).readBy;
+    assert.ok(sharedRead.includes(unitAfterRead.user.id));
+    assert.ok(sharedRead.includes(adminAfterUnitRead.user.id));
     await call(
       "directive",
       { message: "Không được gửi chỉ đạo.", audienceUnits: [task.unit] },
+      unitUser,
+      403,
+    );
+  });
+  await test("16b Đơn vị gửi đề xuất nhiệm vụ về admin để duyệt", async () => {
+    const proposal = (
+      await call(
+        "task",
+        {
+          title: "Đề xuất kiểm tra dữ liệu tháng 10",
+          month: "2026-10",
+          unit: "unit-8",
+          partners: [],
+          assignedDate: "2026-10-01",
+          due: "2026-10-30",
+          importCode: "PROPOSAL-UNIT-8",
+          importAction: "submit",
+        },
+        unitUser,
+      )
+    ).data;
+    assert.equal(proposal.status, "pending");
+    assert.equal(proposal.proposalSource, "unit");
+    assert.ok(
+      (await call("data", undefined, unitUser)).data.tasks.some(
+        (item) => item.id === proposal.id,
+      ),
+    );
+    await call(
+      "report",
+      { taskId: proposal.id, submit: true, result: "Chưa được duyệt" },
+      unitUser,
+      403,
+    );
+    const adminProposal = (
+      await call("data", undefined, admin)
+    ).data.tasks.find((item) => item.id === proposal.id);
+    assert.ok(adminProposal);
+    const assigned = (
+      await call("task-action", { ...adminProposal, action: "assign" }, admin)
+    ).data;
+    assert.equal(assigned.status, "assigned");
+    assert.ok(
+      (await call("data", undefined, unitUser)).data.tasks.some(
+        (item) => item.id === proposal.id && item.status === "assigned",
+      ),
+    );
+    await call(
+      "task",
+      {
+        ...proposal,
+        importCode: "PROPOSAL-OUTSIDE-UNIT",
+        title: "Đề xuất sai đơn vị",
+        importAction: "submit",
+        unit: "unit-2",
+      },
       unitUser,
       403,
     );
@@ -727,6 +904,17 @@ try {
       ).length,
       1,
     );
+    for (const session of [unitUser, partnerUser]) {
+      const portal = (await call("data", undefined, session)).data;
+      const sharedTask = portal.tasks.find((item) => item.id === task.id);
+      assert.equal(sharedTask.status, "done");
+      assert.equal(sharedTask.progress, 125);
+      assert.ok(
+        portal.reports.some(
+          (item) => item.taskId === task.id && item.state === "confirmed",
+        ),
+      );
+    }
   });
   await test("27 Không sửa âm thầm báo cáo đã xác nhận", () =>
     call("report", { ...report, progress: 40 }, unitUser, 400));
@@ -842,7 +1030,7 @@ try {
     ).data;
     assert.equal(c.rootId, t2.id);
     const ds = (await call("data", undefined, admin)).data.tasks;
-    assert.equal(ds.filter((x) => x.month === "2026-10").length, 2);
+    assert.equal(ds.filter((x) => x.month === "2026-10").length, 3);
     assert.equal(ds.filter((x) => x.month === "2026-11").length, 1);
     assert.equal(ds.filter((x) => x.month === "2026-12").length, 0);
   });
@@ -864,7 +1052,7 @@ try {
     await call("period", { month: "2026-10", action: "close" }, admin);
     const snapshots = (await call("snapshots", undefined, admin)).data;
     assert.equal(snapshots.length, 1);
-    assert.equal(snapshots[0].tasks.length, 2);
+    assert.equal(snapshots[0].tasks.length, 3);
   });
   await test("35 Chặn sửa trong kỳ khóa", () =>
     call("task", { ...t2, title: "Không được sửa" }, admin, 409));
@@ -943,7 +1131,7 @@ try {
     await new Promise((r) => server.once("exit", r));
     await start();
     const d = (await call("data", undefined, admin)).data;
-    assert.equal(d.tasks.length, 3);
+    assert.equal(d.tasks.length, 4);
     assert.equal(d.documents.length, 1);
   });
   await test("44 Hạn chế thử mật khẩu sai", async () => {
@@ -966,7 +1154,7 @@ try {
     admin = (await call("login", { username: "admin", password: pass })).cookie;
     await call("restore", { confirm: "PHUC HOI", backup }, admin);
     const d = (await call("data", undefined, admin)).data;
-    assert.equal(d.tasks.length, 3);
+    assert.equal(d.tasks.length, 4);
     assert.equal(d.documents.length, 1);
     assert.equal(d.milestones.length, 1);
   });
@@ -1080,6 +1268,46 @@ try {
         childUser,
       )
     ).data;
+    await call(
+      "users",
+      {
+        username: "childhead",
+        name: "Thủ trưởng đơn vị con",
+        roles: ["head"],
+        units: [childUnit.id],
+        groups: [],
+        password: pass,
+        active: true,
+      },
+      admin,
+    );
+    let childHead = (
+      await call("login", { username: "childhead", password: pass })
+    ).cookie;
+    await call(
+      "password",
+      { old: pass, password: pass + "-changed" },
+      childHead,
+    );
+    childHead = (
+      await call("login", {
+        username: "childhead",
+        password: pass + "-changed",
+      })
+    ).cookie;
+    assert.equal(report.unit, childUnit.id);
+    assert.ok(
+      (await call("data", undefined, admin)).data.reports.some(
+        (item) => item.id === report.id && item.state === "submitted",
+      ),
+      "The lead unit's formal report must enter the admin approval queue.",
+    );
+    await call(
+      "report-action",
+      { id: report.id, version: report.version, action: "confirm" },
+      childHead,
+      403,
+    );
     await call(
       "report-action",
       { id: report.id, version: report.version, action: "confirm" },

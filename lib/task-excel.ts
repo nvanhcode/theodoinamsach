@@ -1,41 +1,62 @@
 import { defaults } from "./domain";
 export const taskImportHeaders = [
-  "Mã nhập",
-  "ID hệ thống",
-  "Phiên bản",
-  "Tháng theo dõi",
-  "Số, ký hiệu văn bản",
   "Nội dung nhiệm vụ",
   "Đơn vị chủ trì",
   "Đơn vị phối hợp",
-  "Người phụ trách",
-  "Lãnh đạo theo dõi",
   "Ngày giao",
-  "Giờ giao",
   "Thời hạn hoàn thành",
-  "Chế độ báo cáo",
-  "Giờ báo cáo",
-  "Ngày báo cáo tuần",
-  "Chỉ tiêu",
-  "Đơn vị tính",
-  "Sản phẩm đầu ra",
+  "Số, ký hiệu văn bản",
   "Ghi chú",
-  "Lý do điều chỉnh",
-  "Yêu cầu thông tin phối hợp",
+  "Mã nhập",
 ];
 const norm = (v: any) =>
   String(v ?? "")
     .trim()
     .normalize("NFC")
     .toLocaleLowerCase("vi");
-export async function buildTaskTemplate(data: any, month: string) {
+const newImportCode = (month: string, row: number) => {
+  const random =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID().replaceAll("-", "").slice(0, 16)
+      : Math.random().toString(36).slice(2, 18);
+  return `NV${month.replace("-", "")}_${row}_${random}`;
+};
+export async function buildTaskTemplate(
+  data: any,
+  month: string,
+  options: { defaultUnitId?: string } = {},
+) {
   const module = await import("xlsx");
   const X = module.default || module;
   const wb = X.utils.book_new();
-  const ws = X.utils.aoa_to_sheet([taskImportHeaders]);
-  ws["!cols"] = taskImportHeaders.map((h, i) => ({
-    wch: [5, 18, 19, 20].includes(i) ? 45 : Math.max(20, h.length + 2),
-  }));
+  const headers = taskImportHeaders;
+  const rows = [
+    headers,
+    ...Array.from({ length: 200 }, (_, index) => {
+      const row = Array(headers.length).fill("");
+      row[headers.length - 1] = newImportCode(month, index + 2);
+      return row;
+    }),
+  ];
+  const ws = X.utils.aoa_to_sheet(rows);
+  ws["!cols"] = [
+    { wch: 62 },
+    { wch: 34 },
+    { wch: 44 },
+    { wch: 16 },
+    { wch: 20 },
+    { wch: 24 },
+    { wch: 42 },
+    { wch: 24, hidden: true },
+  ];
+  ws["!autofilter"] = { ref: `A1:G201` };
+  ws["!freeze"] = {
+    xSplit: 0,
+    ySplit: 1,
+    topLeftCell: "A2",
+    activePane: "bottomLeft",
+    state: "frozen",
+  };
   X.utils.book_append_sheet(wb, ws, "Nhap nhiem vu");
   const units = X.utils.aoa_to_sheet([
     ["Tên đơn vị", "Mã đơn vị", "Khối"],
@@ -46,58 +67,35 @@ export async function buildTaskTemplate(data: any, month: string) {
   units["!cols"] = [{ wch: 58 }, { wch: 22 }, { wch: 28 }];
   X.utils.book_append_sheet(wb, units, "Danh muc don vi");
   const guide = X.utils.aoa_to_sheet([
-    ["HƯỚNG DẪN NHẬP NHIỆM VỤ"],
-    ["Tháng đang chọn", month],
+    ["HƯỚNG DẪN NHẬP NHANH"],
+    ["Kỳ theo dõi", month],
+    ["Cần nhập", "Nội dung nhiệm vụ và thời hạn hoàn thành."],
+    [
+      "Đơn vị chủ trì",
+      options.defaultUnitId
+        ? "Để trống để dùng đơn vị của tài khoản đang đăng nhập; có thể chọn đơn vị khác trong phạm vi được giao."
+        : "Chọn tên đơn vị trong Danh muc don vi.",
+    ],
+    [
+      "Đơn vị phối hợp",
+      "Không bắt buộc. Nếu có, ghi tên các đơn vị và ngăn cách bằng dấu chấm phẩy (;).",
+    ],
+    ["Ngày giao", "Không bắt buộc; để trống sẽ lấy ngày đầu kỳ đang chọn."],
+    ["Số, ký hiệu và ghi chú", "Không bắt buộc."],
     [
       "Mã nhập",
-      "Bắt buộc khi thêm mới; mã riêng cho mỗi nhiệm vụ, dùng chữ, số, dấu gạch ngang/gạch dưới. Giữ mã khi tải lại để tránh tạo trùng.",
+      "Cột ẩn do hệ thống tạo; không sửa hoặc xóa. Giữ nguyên để nhập lại không tạo trùng.",
     ],
     [
-      "ID hệ thống / Phiên bản",
-      "Để trống khi thêm mới. Giữ nguyên khi cập nhật bảng đã xuất từ website.",
+      "Sau khi tải lên",
+      "Kiểm tra từng dòng trước khi lưu. Đơn vị gửi đề xuất sẽ chuyển đến trang admin để phê duyệt; chưa được tính là nhiệm vụ giao.",
     ],
     [
-      "Bắt buộc",
-      "Nội dung, đơn vị chủ trì, người phụ trách, ngày giao, thời hạn hoàn thành.",
-    ],
-    [
-      "Tháng theo dõi",
-      "Dạng YYYY-MM; để trống sẽ dùng tháng đang chọn trên website.",
-    ],
-    [
-      "Đơn vị",
-      "Dùng tên hoặc mã tại Danh muc don vi. Đơn vị phối hợp ngăn cách bằng dấu chấm phẩy (;).",
-    ],
-    [
-      "Thông tin phối hợp",
-      "Nhập Có nếu đơn vị chủ trì cần đơn vị phối hợp gửi thông tin. Để trống sẽ mặc định Có khi có đơn vị phối hợp; nhập Không để tắt.",
-    ],
-    [
-      "Ngày / giờ",
-      "Ngày dạng dd/mm/yyyy hoặc yyyy-mm-dd; giờ hh:mm. Có thể dùng ô ngày/giờ Excel.",
-    ],
-    [
-      "Chế độ báo cáo",
-      "Theo lịch chung, Hằng ngày hoặc Hằng tuần. Khi dùng lịch riêng phải có giờ báo cáo; lịch tuần phải có ngày 1–7 (1 là thứ Hai).",
-    ],
-    [
-      "Văn bản nguồn",
-      "Số văn bản phải có sẵn trong website; để trống nếu nhiệm vụ thủ công.",
-    ],
-    [
-      "Điều chỉnh",
-      "Đổi chủ trì hoặc hạn hoàn thành cần lý do; chỉ Chánh/Phó Văn phòng được thực hiện.",
-    ],
-    [
-      "Sau khi lưu",
-      "Chánh/Phó Văn phòng chọn Lưu và giao nhiệm vụ để đơn vị nhận ngay; cán bộ nhập liệu chọn Lưu và trình duyệt. Chỉ lưu nháp khi chưa muốn giao việc.",
-    ],
-    [
-      "Cập nhật",
-      "Không nhập tiến độ, trạng thái hoặc quyền truy cập qua Excel. Báo cáo tiến độ theo quy trình trên website.",
+      "Cập nhật nhiệm vụ cũ",
+      "Tải bảng giao nhiệm vụ Excel từ trang admin để cập nhật; mẫu nhập nhanh này dùng để thêm nhiệm vụ mới.",
     ],
   ]);
-  guide["!cols"] = [{ wch: 28 }, { wch: 115 }];
+  guide["!cols"] = [{ wch: 28 }, { wch: 110 }];
   X.utils.book_append_sheet(wb, guide, "Huong dan");
   return new Uint8Array(X.write(wb, { bookType: "xlsx", type: "array" }));
 }
@@ -106,6 +104,7 @@ export async function parseTaskExcel(
   bytes: ArrayBuffer,
   data: any,
   month: string,
+  options: { defaultUnitId?: string; unitProposal?: boolean } = {},
 ) {
   const module = await import("xlsx");
   const X = module.default || module;
@@ -159,13 +158,19 @@ export async function parseTaskExcel(
   };
   for (let i = hi + 1; i < rows.length; i++) {
     const row = rows[i];
-    if (row.every((v) => text(v) === "")) continue;
+    const hasUserInput = headers.some(
+      (header, index) =>
+        !["mã nhập", "id hệ thống", "phiên bản", "tháng theo dõi"].includes(
+          header,
+        ) && text(row[index]) !== "",
+    );
+    if (!hasUserInput) continue;
     const errors: string[] = [];
     const get = (n: string) => col(row, n);
     const title = text(get("Nội dung nhiệm vụ"));
     const rid = text(get("ID hệ thống"));
-    const code = text(get("Mã nhập"));
     const period = text(get("Tháng theo dõi")) || month;
+    const code = text(get("Mã nhập")) || newImportCode(period, i + 1);
     let old: any = null;
     if (rid) {
       old = data.tasks.find((t: any) => t.id === rid);
@@ -182,6 +187,10 @@ export async function parseTaskExcel(
     if (!old && !/^[A-Za-z0-9_-]{1,60}$/.test(code))
       errors.push(
         "Mã nhập mới phải có 1–60 ký tự chữ, số, gạch ngang/gạch dưới",
+      );
+    if (options.unitProposal && old)
+      errors.push(
+        "Đề xuất đã gửi trước đó; theo dõi trạng thái ở mục Đề xuất chờ duyệt.",
       );
     const key = old?.id || period + "|" + code;
     if (seen.has(key)) errors.push("Mã nhiệm vụ bị lặp trong file");
@@ -212,9 +221,9 @@ export async function parseTaskExcel(
       }
       return matches[0].id;
     };
-    const unit = text(get("Đơn vị chủ trì"))
-      ? resolveUnit(get("Đơn vị chủ trì"))
-      : "";
+    const unitValue =
+      text(get("Đơn vị chủ trì")) || options.defaultUnitId || "";
+    const unit = unitValue ? resolveUnit(unitValue) : "";
     if (!unit) errors.push("Thiếu đơn vị chủ trì");
     const partners = text(get("Đơn vị phối hợp"))
       .split(";")
@@ -238,8 +247,7 @@ export async function parseTaskExcel(
     if (partnerUpdateRequired && !partners.length)
       errors.push("Chỉ yêu cầu thông tin phối hợp khi đã chọn đơn vị phối hợp");
     const owner = text(get("Người phụ trách"));
-    if (!owner) errors.push("Thiếu người phụ trách");
-    const assignedDate = date(get("Ngày giao")),
+    const assignedDate = date(get("Ngày giao")) || `${period}-01`,
       due = date(get("Thời hạn hoàn thành"));
     for (const [label, v] of [
       ["Ngày giao", assignedDate],

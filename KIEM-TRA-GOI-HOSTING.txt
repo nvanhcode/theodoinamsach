@@ -1,14 +1,16 @@
-Kiểm tra gói hosting Nam Sách ngày 15/10/2026
+KIỂM TRA GÓI HOSTING — 18/10/2026
 
-PASS SQLite integrity_check.
-PASS SQLite foreign_key_check, không có lỗi.
-PASS Node.js 24 prebuilt server khởi động từ gói giải nén mới.
-PASS 45 nhiệm vụ, 3 báo cáo, 22 đơn vị, 9 tài khoản, 53 thông báo và 180 nhật ký được đóng gói.
-PASS Khởi động lại giữ nguyên dữ liệu; snapshot không ghi đè database đã có.
-PASS API dữ liệu chưa đăng nhập trả HTTP 401.
-PASS Excel, tệp tĩnh và các kiểm thử API/SQLite được kiểm tra trong bộ tích hợp.
-PASS Compose YAML phân tích hợp lệ.
+Phiên bản đóng gói: Site v42, mã nguồn 4460214972b785639090b85c8f3595f61a9107cc.
 
-CHƯA KIỂM TRA: Docker build trên máy chủ đích, DNS tên miền, chứng thư HTTPS trên theodoinamsach.com và Safari/iPhone thật.
-CẦN BỔ SUNG: nội dung binary của 2 tệp DOCX tải lên Site; xem TAP-TIN-CHUA-KEM.txt.
-Nguồn dữ liệu: bản đọc D1 ngày 15/10/2026; không có transaction khóa dữ liệu trong toàn bộ lượt xuất.
+Đã kiểm tra:
+- Bộ kiểm thử tích hợp HTTP của self-host: 56 kiểm tra đạt; gồm giao việc, phân quyền, báo cáo, phê duyệt, đồng bộ bộ đếm, thông báo, xóa theo tháng, tệp minh chứng, sao lưu và phục hồi.
+- SQLite bàn giao: integrity_check = ok; foreign_key_check không có lỗi.
+- Dữ liệu gốc: 46 nhiệm vụ, 1 báo cáo, 23 đơn vị, 9 tài khoản, 45 thông báo, 134 bản ghi nhật ký; không có tệp minh chứng nhị phân.
+- Khởi động gói sạch bằng Node.js 24: ứng dụng sao chép cơ sở dữ liệu vào DATA_DIR, tạo thư mục tệp; trang chủ HTTP 200; API dữ liệu chưa đăng nhập HTTP 401.
+- Khởi động lại: giữ nguyên dữ liệu và không tạo lặp nhắc việc.
+- Cấu hình compose.yaml đọc được; deploy.sh vượt qua kiểm tra cú pháp shell.
+
+Giới hạn kiểm tra:
+- Docker chưa được cài trong môi trường dựng gói nên chưa chạy thử image/Compose thực tế.
+- Chưa triển khai trên hosting người dùng; DNS, cấp chứng chỉ HTTPS, cấu hình firewall và giao diện trên thiết bị thật chưa được kiểm thử.
+- SQLite là ảnh chụp ngày 11/10/2026; không có dữ liệu cập nhật trên Site sau thời điểm đó.

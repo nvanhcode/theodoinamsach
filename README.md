@@ -1,29 +1,23 @@
-# Hệ thống theo dõi kết luận, chỉ đạo — gói hosting Nam Sách
+# Hệ thống theo dõi kết luận, chỉ đạo — gói triển khai riêng
 
-## Bản phát hành
+Gói này chạy độc lập trên máy chủ của đơn vị bằng Node.js 24 hoặc Docker. Không phụ thuộc Firebase, Supabase, email/SMS hay API key dịch vụ nghiệp vụ. Nó gồm mã nguồn, bản dựng sẵn, SQLite bàn giao, tệp mẫu và cấu hình proxy HTTPS.
 
-- Mã nguồn: Site Nam Sách, phiên bản 33, cập nhật ngày 15/10/2026.
-- Bản chạy riêng: Node.js 24, SQLite và thư mục lưu tệp nội bộ.
-- Tên miền đã chuẩn bị trong cấu hình: `theodoinamsach.com`.
-- Gói gồm mã nguồn, giao diện đã biên dịch, Docker/Caddy, cơ sở dữ liệu khởi tạo và tài liệu triển khai.
-- Không gồm phiên đăng nhập, khóa/API key bên thứ ba hay thông tin cấu hình bí mật.
+## Dữ liệu có trong gói
 
-## Dữ liệu khởi tạo
+- 46 nhiệm vụ tháng 10/2026, 1 báo cáo, 23 đơn vị, 9 tài khoản và 45 thông báo trong bản chụp SQLite.
+- Mật khẩu được lưu dưới dạng mã băm; gói không chứa mật khẩu dạng văn bản.
+- Bản chụp không có tệp minh chứng nhị phân (0 tệp). Minh chứng tải lên sau triển khai được lưu trong `data/files/`.
+- Phiên đăng nhập không được mang sang máy chủ mới. Khi khởi động lần đầu, hệ thống sao chép SQLite vào `data/nam-sach.sqlite`; các lần khởi động sau không ghi đè dữ liệu.
+- Bộ đếm 45 thông báo là số trong bản chụp ban đầu. Khi chạy lần đầu, bộ nhắc việc tự tạo thêm thông báo theo các hạn cần xử lý; số này có thể tăng và được lưu trong cơ sở dữ liệu.
 
-Cơ sở dữ liệu được chụp từ D1 của Site ngày 15/10/2026, khoảng 11:14 giờ Việt Nam. Bản chụp có 45 nhiệm vụ tháng 10/2026, 22 đơn vị, 9 tài khoản, 3 báo cáo, 53 thông báo, 180 mục nhật ký và 2 dòng metadata tệp.
+> Đây là bản sao dữ liệu tại ngày 11/10/2026, không đồng bộ các cập nhật phát sinh trên website đang dùng sau thời điểm xuất. Hãy kiểm tra số liệu trước khi chốt chuyển sang địa chỉ mới.
 
-**Hai tệp DOCX tải lên ở Site chưa có phần nội dung nhị phân trong bản xuất này.** Tên và mã tệp được liệt kê trong `TAP-TIN-CHUA-KEM.txt`; cần lấy lại hai tệp gốc và chép vào `data/files/<mã-tệp>` trước khi chuyển hệ thống cho các đơn vị. Tệp thiếu không ảnh hưởng đăng nhập hay các luồng nhiệm vụ/báo cáo khác, nhưng liên kết tải hai DOCX này chưa dùng được cho tới khi bổ sung.
+## Cách 1 — Docker với HTTPS tự động
 
-Phiên đăng nhập không được chuyển. Các tài khoản dùng mật khẩu đã băm hiện có; không đặt lại mật khẩu. Dữ liệu trên Site cũ phát sinh sau thời điểm chụp không tự đồng bộ sang máy chủ mới.
+Yêu cầu máy chủ Linux đã cài Docker Compose; tên miền trỏ về địa chỉ IP máy chủ; cổng 80 và 443 được mở.
 
-## Điều kiện hosting
-
-Cần VPS hoặc hosting hỗ trợ Docker Compose, lưu trữ bền vững, mở cổng 80/443 và cho phép Node.js 24 trong container. Hosting chỉ có PHP/MySQL hoặc hosting tĩnh không chạy được ứng dụng này. Gói chưa cấu hình DNS, chưa triển khai lên máy chủ của người dùng và chưa cấp chứng thư HTTPS trên tên miền thực.
-
-## Cài bằng Docker và Caddy
-
-1. Giải nén gói vào thư mục riêng trên VPS, **không đặt trong `public_html`**.
-2. Tạo tệp cấu hình và mã cài đặt riêng:
+1. Giải nén gói trên máy chủ và vào thư mục vừa giải nén.
+2. Tạo cấu hình riêng:
 
    ```bash
    cp .env.example .env
@@ -31,23 +25,43 @@ Cần VPS hoặc hosting hỗ trợ Docker Compose, lưu trữ bền vững, m�
    openssl rand -hex 32
    ```
 
-3. Điền `DOMAIN=theodoinamsach.com`, `APP_ORIGIN=https://theodoinamsach.com` và thay `SETUP_TOKEN` bằng chuỗi vừa tạo. Không dùng chuỗi mẫu trong `.env.example`.
-4. Trỏ bản ghi DNS A của `theodoinamsach.com` tới IP máy chủ; mở TCP 80/443 và UDP 443. Nếu dùng cả `www.theodoinamsach.com`, thêm DNS và host tương ứng vào Caddyfile trước khi chạy.
-5. Khởi động:
+3. Mở `.env`. Đặt `DOMAIN` và `APP_ORIGIN` theo tên miền sẽ sử dụng; thay `SETUP_TOKEN` bằng chuỗi ngẫu nhiên vừa tạo. Không chia sẻ token này.
+4. Khởi chạy ứng dụng và Caddy:
 
    ```bash
-   docker compose up -d --build
+   docker compose --profile tls up -d --build
+   docker compose ps
    docker compose logs --tail=80 app https
    ```
 
-6. Trước khi mở DNS cho người dùng, đăng nhập hệ thống và đổi mật khẩu tất cả tài khoản đã bàn giao; không tiếp tục dùng mật khẩu khởi tạo. Nếu DNS đã công khai, đổi mật khẩu ngay.
-7. Kiểm tra số liệu, báo cáo, phân quyền và tải tệp bằng tài khoản admin cùng ít nhất một tài khoản đơn vị. Chỉ chuyển người dùng sang địa chỉ mới sau khi đối chiếu xong.
+   Có thể thay các lệnh trên bằng `sh deploy.sh` sau khi đã sửa `.env`.
 
-Caddy tự xin và gia hạn HTTPS khi DNS trỏ đúng và cổng mạng được mở. Nếu máy chủ đã có Nginx/Apache sử dụng cổng 80/443, không bật service `https`; cấu hình reverse proxy tới `http://127.0.0.1:8208` và vẫn giữ `APP_ORIGIN=https://theodoinamsach.com`.
+Caddy tự xin HTTPS khi DNS đã trỏ đúng và máy chủ nhận được lưu lượng ở cổng 80/443. Truy cập `https://theodoinamsach.com` sau khi chứng chỉ được cấp.
 
-## Chạy trực tiếp bằng Node.js 24
+## Cách 2 — Docker phía sau Nginx/HTTPS có sẵn
 
-Từ thư mục gốc đã giải nén:
+Giữ `HOST_PORT=8208`, cấu hình `DOMAIN`, `APP_ORIGIN` và `SETUP_TOKEN` trong `.env`, sau đó chạy:
+
+```bash
+docker compose up -d --build
+```
+
+Nginx trên máy chủ proxy tới `http://127.0.0.1:8208`. Ví dụ cấu hình trong khối `server` HTTPS:
+
+```nginx
+client_max_body_size 30m;
+location / {
+    proxy_pass http://127.0.0.1:8208;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+## Cách 3 — Node.js không Docker
+
+Yêu cầu Node.js 24. Đặt thư mục dữ liệu ngoài vùng web công khai và cấp quyền ghi cho tài khoản chạy ứng dụng:
 
 ```bash
 export NODE_ENV=production
@@ -58,18 +72,39 @@ export SETUP_TOKEN='CHUOI_NGAU_NHIEN_RIENG'
 node startup/start.mjs
 ```
 
-Dùng systemd/process manager để tự khởi động lại; reverse proxy HTTPS tới `127.0.0.1:3080`. Với Nginx, đặt `client_max_body_size 30m;`. Giới hạn cổng Node chỉ cho reverse proxy truy cập. Thư mục `DATA_DIR` phải nằm ngoài thư mục công khai và cho phép tài khoản ứng dụng đọc/ghi.
+Dùng systemd hoặc trình quản lý tiến trình của hosting để tự khởi động lại; cấu hình Nginx/Apache làm reverse proxy HTTPS tới ứng dụng. Với Nginx, đặt `client_max_body_size 30m;`. Chặn truy cập Internet trực tiếp vào cổng ứng dụng.
 
-## Lưu trữ, sao lưu và cập nhật
+Hosting chỉ hỗ trợ PHP/MySQL không chạy được gói này. Không chạy nhiều bản sao ứng dụng cùng ghi một SQLite trên ổ mạng.
 
-- Cơ sở dữ liệu: `DATA_DIR/nam-sach.sqlite`.
-- Tệp tải lên: `DATA_DIR/files/`.
-- Container dùng thư mục bền vững `./data`; không xóa thư mục này khi cập nhật. Không dùng ổ đĩa tạm hoặc chạy nhiều bản ứng dụng cùng ghi một SQLite.
-- Sao lưu khi ứng dụng dừng: sao chép toàn bộ `data/` ra vị trí an toàn. Kiểm tra bản sao phục hồi trước khi xóa hoặc thay máy chủ.
-- Không đưa `.env`, tệp ZIP hoặc database vào thư mục website công khai.
+## Dữ liệu và cập nhật
 
-## Kiểm thử và giới hạn xác nhận
+- `data/nam-sach.sqlite`: tài khoản, nhiệm vụ, báo cáo, thông báo, đơn vị, thiết lập và lịch sử.
+- `data/files/`: tệp minh chứng phát sinh sau khi triển khai.
+- `initial-data/nam-sach.sqlite`: bản chụp gốc chỉ dùng nạp lần đầu; không đặt thư mục này dưới `public_html`.
+- Cập nhật Docker: giải nén mã mới vào thư mục ứng dụng, giữ nguyên `.env` và `data/`, rồi chạy `docker compose up -d --build`. Không chạy `docker compose down -v`, không xóa `data/`.
 
-Bộ kiểm thử tích hợp hiện có đạt **55/55** ca HTTP/SQLite: phân quyền; giao nhiệm vụ; chủ trì/phối hợp; gửi, trả, duyệt báo cáo; cập nhật tiến độ và bộ đếm; minh chứng; thông báo; lịch sử; sao lưu/phục hồi; xóa nhiệm vụ theo tháng và kiểm tra trang con không còn thấy nhiệm vụ/báo cáo đã xóa.
+Trước khi chuyển dùng chính thức, đăng nhập bằng tài khoản hiện có, kiểm tra quyền của từng đơn vị và đổi mật khẩu theo quy định của đơn vị. Không ghi mật khẩu thực tế vào `.env`, tài liệu công khai hoặc kho mã nguồn.
 
-Bản dựng Node.js 24 và tính toàn vẹn SQLite/khóa ngoại đã được kiểm tra. Chưa kiểm thử DNS, HTTPS, Docker trên máy chủ đích, giao diện Safari/iPhone thực tế hoặc quy trình phục hồi trên hosting của người dùng. Đọc `BAO-CAO-RA-SOAT-LUONG.md` và `KIEM-TRA-GOI-HOSTING.txt` trước khi chuyển dữ liệu thật.
+## Sao lưu và phục hồi
+
+Với Docker Compose, dừng ứng dụng và sao lưu đồng thời SQLite cùng thư mục tệp:
+
+```bash
+docker compose stop app
+tar -czf nam-sach-backup-$(date +%F).tar.gz data
+docker compose start app
+```
+
+Giữ bản sao ở nơi riêng, giới hạn quyền truy cập. Khi phục hồi, dừng ứng dụng và phục hồi cả `nam-sach.sqlite` lẫn `files/` từ cùng một bản sao. Không ghép thủ công hai cơ sở dữ liệu.
+
+## Dựng lại từ mã nguồn
+
+Gói đã kèm bản chạy sẵn để triển khai nhanh. Nếu cần dựng lại, dùng Node.js 24 và pnpm theo `package.json`:
+
+```bash
+corepack enable
+pnpm install --frozen-lockfile
+node selfhost/build.mjs
+```
+
+Hoặc build image bằng `Dockerfile.build-source`. Kiểm tra `RELEASE.json` và `KIEM-TRA-GOI-HOSTING.txt` để biết phiên bản, dữ liệu và kết quả kiểm tra của gói.

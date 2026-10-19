@@ -13,7 +13,7 @@ await build({
 const { exportReport, exportAssignmentExcel, reportRows } =
   await import("../.sites-runtime/export-test/exports.mjs");
 const source = X.read(
-  readFileSync("../qa-input/Nam_Sach_Nhiem_vu_thang_10_2026_TEST.xlsx"),
+  readFileSync("tests/fixtures/nhiem-vu-thang-10.xlsx"),
   { type: "buffer" },
 );
 const input = X.utils.sheet_to_json(source.Sheets[source.SheetNames[0]]);
