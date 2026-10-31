@@ -23,7 +23,8 @@ export function unreadNoticeRecipientCount(notices: any[], users: any[] = []) {
     return (
       total +
       rows.reduce(
-        (count, row) => count + (row.recipients.length ? row.unread.length : 1),
+        (count: number, row: any) =>
+          count + (row.recipients.length ? row.unread.length : 1),
         0,
       )
     );

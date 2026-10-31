@@ -479,12 +479,12 @@ async function handle(req: Request, initialDefault = false) {
           (r.state !== "draft" ||
             office(u) ||
             r.author === u.id ||
-            u.units.includes(r.unit)),
+            u.units?.includes(r.unit)),
       );
       const taskById = new Map(tasks.map((task: any) => [task.id, task]));
       const notices = (await records("notice")).filter((n: any) => {
-        const task = taskById.get(n.taskId);
-        if (n.category === "admin-directive") return canReadNotice(u, n, null);
+        const task = n.taskId ? taskById.get(n.taskId) : null;
+        if (!n.taskId || n.category === "admin-directive") return canReadNotice(u, n, null);
         return task && canReadNotice(u, n, task);
       });
       const fs = await all("SELECT * FROM files");
@@ -521,7 +521,7 @@ async function handle(req: Request, initialDefault = false) {
                   Array.isArray(t.evidenceIds) && t.evidenceIds.includes(f.id),
               )?.id,
           })),
-        users: has(u, "admin", "tech")
+        users: office(u) || has(u, "tech")
           ? (await all("SELECT * FROM users")).map(publicUser)
           : [],
       });
@@ -1530,8 +1530,10 @@ async function handle(req: Request, initialDefault = false) {
         check(
           old.kind === "report" &&
             old.taskId === t.id &&
-            old.author === u.id &&
+            (old.author === u.id || office(u) || u.units?.includes(old.unit)) &&
             ["draft", "returned"].includes(old.state),
+          "Không có quyền chỉnh sửa báo cáo này.",
+          403,
         );
         check(old.version === b.version, "Báo cáo đã thay đổi.", 409);
       }
@@ -1814,12 +1816,12 @@ async function handle(req: Request, initialDefault = false) {
         has(u, "editor", "head", "partner") &&
         allowedPartnerUnits.length > 0 &&
         (t.partnerUpdateRequired ?? !!t.partners?.length);
-      const leadPartnerUnits = u.units?.includes(t.unit)
+      const leadPartnerUnits = (office(u) || u.units?.includes(t.unit))
         ? (t.partners || []).filter((unit: string) => unit !== t.unit)
         : [];
       const isLeadUpdate =
         b.type === "coordination" &&
-        has(u, "editor", "head", "partner") &&
+        (office(u) || has(u, "editor", "head", "partner")) &&
         leadPartnerUnits.includes(b.unit) &&
         (t.partnerUpdateRequired ?? !!t.partners?.length);
       const isCoordinationUpdate = isPartnerUpdate || isLeadUpdate;
@@ -1894,6 +1896,7 @@ async function handle(req: Request, initialDefault = false) {
             : "Có ý kiến mới: " + t.title,
         undefined,
         isCoordinationUpdate ? [recipientUnitId] : undefined,
+        isCoordinationUpdate ? "coordination" : undefined,
       );
       return json(comment);
     }
@@ -1921,7 +1924,12 @@ async function handle(req: Request, initialDefault = false) {
       );
     }
     if (path === "remind" && method === "POST") {
-      check(office(u));
+      check(
+        office(u) ||
+          has(u, "secretary", "standing", "chair", "council", "inspector"),
+        "Chỉ văn phòng hoặc lãnh đạo được gửi đôn đốc, nhắc việc.",
+        403,
+      );
       const ts = b.id
         ? [await taskFor(u, b.id)]
         : (await records("task")).filter(
@@ -1990,17 +1998,24 @@ async function handle(req: Request, initialDefault = false) {
       return json({ count });
     }
     if (path === "directive" && method === "POST") {
-      check(office(u));
+      check(
+        office(u) ||
+          has(u, "secretary", "standing", "chair", "council", "inspector"),
+        "Chỉ văn phòng hoặc lãnh đạo được gửi chỉ đạo nhắc việc.",
+        403,
+      );
       const message = safe(b.message, 4000);
       check(message, "Nhập nội dung chỉ đạo nhắc việc.", 400);
       const availableUnits = await records("unit");
-      const requestedUnits = Array.isArray(b.audienceUnits)
+      const requestedUnits: string[] = Array.isArray(b.audienceUnits)
         ? Array.from(
-            new Set(b.audienceUnits.filter((x: any) => typeof x === "string")),
+            new Set<string>(
+              b.audienceUnits.filter((x: any) => typeof x === "string"),
+            ),
           )
         : [];
       const allowedIds = new Set(availableUnits.map((unit: any) => unit.id));
-      const audienceUnits = requestedUnits.filter((unit: string) =>
+      const audienceUnits = requestedUnits.filter((unit) =>
         allowedIds.has(unit),
       );
       check(
@@ -2383,14 +2398,15 @@ async function handle(req: Request, initialDefault = false) {
       } else if (r.kind === "comment") {
         const task = await taskFor(u, r.taskId);
         check(
-          r.type === "coordination" &&
-            canSee(u, task) &&
+          canSee(u, task) &&
             canReadTaskComment(u, task, r),
+          "Không có quyền xem tệp đính kèm này.",
+          403,
         );
       } else if (r.kind === "task") check(canSee(u, r));
       else
         check(
-          (!r.restricted || r.allowedUsers.includes(u.id)) &&
+          (!r.restricted || r.allowedUsers?.includes(u.id)) &&
             (office(u) ||
               has(u, "secretary") ||
               (await records("task")).some(

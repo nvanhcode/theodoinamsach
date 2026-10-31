@@ -48,7 +48,7 @@ export async function checkReminders() {
       );
     }
   }
-  const taskById = new Map(ts.map((task: any) => [task.id, task]));
+  const taskById = new Map<string, any>(ts.map((task: any) => [task.id, task]));
   for (const report of reports.filter(
     (item: any) => item.state === "submitted",
   )) {

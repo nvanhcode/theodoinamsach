@@ -52,7 +52,7 @@ export const canReadNotice = (u: any, n: any, t: any) => {
     return (
       office(u) ||
       has(u, "secretary", "standing", "chair", "council", "inspector") ||
-      u.units?.includes(t.unit)
+      u.units?.includes(t?.unit)
     );
   return true;
 };
@@ -61,7 +61,7 @@ export const canReadReport = (u: any, t: any, r: any) =>
   (r.state !== "draft" ||
     office(u) ||
     r.author === u.id ||
-    u.units.includes(r.unit));
+    u.units?.includes(r.unit));
 export const evidenceLabels: Record<string, string> = {
   none: "Không bắt buộc minh chứng",
   any: "Cần có tệp minh chứng",

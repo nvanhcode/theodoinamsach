@@ -13,7 +13,7 @@ type Task = { id: string; month: string; [key: string]: unknown };
 
 export function canReviewReport(user: ReviewUser, report: Report) {
   return (
-    approver(user) || (has(user, "head") && user.units?.includes(report.unit))
+    approver(user) || (has(user, "head") && user?.units?.includes(report.unit))
   );
 }
 

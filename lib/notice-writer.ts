@@ -59,7 +59,7 @@ export async function notifyReportApproval(
 ) {
   const units = unitDirectory || (await records("unit"));
   const unitName =
-    units.find((unit) => unit.id === report.unit)?.name || report.unit;
+    units.find((unit: any) => unit.id === report.unit)?.name || report.unit;
   return notify(
     task,
     `Báo cáo đơn vị cần phê duyệt · ${unitName}: ${task.title}`,

@@ -916,12 +916,34 @@ export function AppModals() {
                       open("comment", {
                         taskId: selectedTask.id,
                         text: "",
-                        type: "coordination",
+                        type:
+                          office(user) ||
+                          has(
+                            user,
+                            "secretary",
+                            "standing",
+                            "chair",
+                            "council",
+                            "inspector",
+                          )
+                            ? "direction"
+                            : "coordination",
+                        unit: selectedTask.partners?.[0] || "",
                       })
                     }
                   >
                     <Plus />
-                    Thêm ý kiến
+                    {office(user) ||
+                    has(
+                      user,
+                      "secretary",
+                      "standing",
+                      "chair",
+                      "council",
+                      "inspector",
+                    )
+                      ? "Thêm ý kiến chỉ đạo"
+                      : "Thêm ý kiến trao đổi"}
                   </Btn>
                 </TabsContent>
                 <TabsContent value="history">
@@ -2730,13 +2752,40 @@ export function AppModals() {
                     </Field>
                   </>
                 ) : modal === "comment" ? (
-                  <Field label="Nội dung ý kiến" wide>
-                    <textarea
-                      required
-                      value={form.text || ""}
-                      onChange={(e) => change("text", e.target.value)}
-                    />
-                  </Field>
+                  <>
+                    <Field label="Loại ý kiến" wide>
+                      <Pick
+                        value={form.type || "direction"}
+                        onChange={(v: string) => change("type", v)}
+                        options={[
+                          ["direction", "Ý kiến chỉ đạo / điều hành"],
+                          ["coordination", "Thông tin phối hợp / trao đổi"],
+                        ]}
+                      />
+                    </Field>
+                    {form.type === "coordination" &&
+                      selectedTask?.partners?.length > 0 && (
+                        <Field label="Đơn vị phối hợp nhận / liên quan" wide>
+                          <Pick
+                            value={form.unit || selectedTask.partners[0]}
+                            onChange={(v: string) => change("unit", v)}
+                            options={selectedTask.partners.map((pid: string) => [
+                              pid,
+                              unitName(pid),
+                            ])}
+                          />
+                        </Field>
+                      )}
+                    <Field label="Nội dung ý kiến *" wide>
+                      <textarea
+                        required
+                        rows={4}
+                        value={form.text || ""}
+                        onChange={(e) => change("text", e.target.value)}
+                        placeholder="Nhập ý kiến chỉ đạo hoặc thông tin trao đổi..."
+                      />
+                    </Field>
+                  </>
                 ) : modal === "remind" ? (
                   <Field label="Nội dung yêu cầu / nhắc việc gửi đơn vị" wide>
                     <textarea

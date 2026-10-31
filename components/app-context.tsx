@@ -160,8 +160,8 @@ export function AppProvider({
     "note",
   ]);
   const [range, setRange] = useState("month");
-  const [fromDate, setFromDate] = useState("2026-10-01");
-  const [toDate, setToDate] = useState("2026-10-31");
+  const [fromDate, setFromDate] = useState(() => `${localDate().slice(0, 7)}-01`);
+  const [toDate, setToDate] = useState(() => localDate());
 
   const [templateDownload, setTemplateDownload] = useState<any>(null);
   const [importFileName, setImportFileName] = useState("");
@@ -550,9 +550,7 @@ export function AppProvider({
           : a.due.localeCompare(b.due),
     );
 
-  const base = monthTasks.filter(
-    (t) => (!unit || t.unit === unit) && (!group || taskGroup(t) === group),
-  );
+  const base = progressScope;
   const done = base.filter((t) => t.status === "done").length;
   const working = base.filter(
     (t) =>

@@ -90,6 +90,7 @@ export function canSee(u: any, t: any) {
   if (has(u, "chair") && ["UBND", "Giáo dục, y tế"].includes(t.group))
     return true;
   if (has(u, "council") && t.group === "HĐND") return true;
+  if (has(u, "inspector")) return true;
   return (
     u.units?.includes(t.unit) ||
     t.partners?.some((x: string) => u.units?.includes(x)) ||

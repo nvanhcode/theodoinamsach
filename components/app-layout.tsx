@@ -151,10 +151,7 @@ export function AppLayout({
   const ownUnreadNotices = data.notices.filter(
     (notice: any) => !notice.readBy?.includes(user.id),
   ).length;
-  const unreadForUnits = has(user, "admin")
-    ? unreadNoticeRecipientCount(data.notices, data.users)
-    : 0;
-  const unreadNoticeCount = ownUnreadNotices + unreadForUnits;
+  const unreadNoticeCount = ownUnreadNotices;
 
   const defaultTitle =
     currentPage === "tasks" && sub === "documents"

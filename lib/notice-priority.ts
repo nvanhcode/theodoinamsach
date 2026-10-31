@@ -10,8 +10,10 @@ export function noticePriority(title = "") {
     return { rank: 1, label: "Chờ xử lý", tone: "review" };
   if (/sắp đến hạn|nhắc báo cáo/.test(value))
     return { rank: 2, label: "Sắp đến hạn", tone: "review" };
-  if (/thông tin phối hợp|ý kiến phối hợp/.test(value))
+  if (/thông tin phối hợp|ý kiến phối hợp|phản hồi của đơn vị chủ trì/.test(value))
     return { rank: 3, label: "Phối hợp", tone: "coordination" };
+  if (/ý kiến mới|chỉ đạo nhắc việc/.test(value))
+    return { rank: 3, label: "Ý kiến / Chỉ đạo", tone: "review" };
   return { rank: 4, label: "Thông tin", tone: "normal" };
 }
 

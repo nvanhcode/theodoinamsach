@@ -60,7 +60,7 @@ export function NoticesView() {
     .filter(
       (n: any) =>
         n.category === "admin-directive" ||
-        base.some((t: any) => t.id === n.taskId),
+        tasks.some((t: any) => t.id === n.taskId),
     )
     .sort((a: any, b: any) => {
       const priority =
@@ -171,7 +171,15 @@ export function NoticesView() {
       <section className="panel">
         <div className="panel-head">
           <h2>Lịch sử thông báo nội bộ</h2>
-          {office(user) && (
+          {(office(user) ||
+            has(
+              user,
+              "secretary",
+              "standing",
+              "chair",
+              "council",
+              "inspector",
+            )) && (
             <Btn
               primary
               onClick={() =>
@@ -187,7 +195,15 @@ export function NoticesView() {
             </Btn>
           )}
         </div>
-        {office(user) && (
+        {(office(user) ||
+          has(
+            user,
+            "secretary",
+            "standing",
+            "chair",
+            "council",
+            "inspector",
+          )) && (
           <form
             className="panel-body border-b"
             onSubmit={(event) => {
@@ -249,7 +265,7 @@ export function NoticesView() {
                           current ?? unitOptions.map((item: any) => item.id);
                         return event.target.checked
                           ? [...new Set([...selected, unit.id])]
-                          : selected.filter((id) => id !== unit.id);
+                          : selected.filter((id: string) => id !== unit.id);
                       })
                     }
                   />
@@ -341,37 +357,49 @@ export function NoticesView() {
               </p>
             </div>
             <div className="notice-actions">
-              <Btn
-                small
-                onClick={() => {
-                  if (n.category === "admin-directive") {
-                    if (!n.readBy?.includes(user.id))
-                      run(
-                        () => markNoticeRead(n.id),
-                        "Đã đánh dấu đã đọc.",
-                        false,
-                        false,
-                      );
-                    return;
-                  }
-                  setSelected(tasks.find((t: any) => t.id === n.taskId));
-                  setDetailTab(
-                    n.title.startsWith("Báo cáo đơn vị cần phê duyệt")
-                      ? "reports"
-                      : n.title.startsWith("Thông tin phối hợp mới")
-                        ? "comments"
-                        : "info",
+              {(() => {
+                const isReportNotice =
+                  /^(?:Báo cáo đơn vị cần phê duyệt|Báo cáo cần bổ sung|Báo cáo đã xác nhận)/i.test(
+                    n.title,
                   );
-                }}
-              >
-                {n.category === "admin-directive"
-                  ? "Đọc chỉ đạo"
-                  : n.title.startsWith("Báo cáo đơn vị cần phê duyệt")
-                    ? "Mở báo cáo"
-                    : n.title.startsWith("Thông tin phối hợp mới")
-                      ? "Mở thông tin phối hợp"
-                      : "Xem nhiệm vụ"}
-              </Btn>
+                const isCommentNotice =
+                  /^(?:Thông tin phối hợp mới|Phản hồi của đơn vị chủ trì|Có ý kiến mới)/i.test(
+                    n.title,
+                  );
+                return (
+                  <Btn
+                    small
+                    onClick={() => {
+                      if (n.category === "admin-directive") {
+                        if (!n.readBy?.includes(user.id))
+                          run(
+                            () => markNoticeRead(n.id),
+                            "Đã đánh dấu đã đọc.",
+                            false,
+                            false,
+                          );
+                        return;
+                      }
+                      setSelected(tasks.find((t: any) => t.id === n.taskId));
+                      setDetailTab(
+                        isReportNotice
+                          ? "reports"
+                          : isCommentNotice
+                            ? "comments"
+                            : "info",
+                      );
+                    }}
+                  >
+                    {n.category === "admin-directive"
+                      ? "Đọc chỉ đạo"
+                      : isReportNotice
+                        ? "Mở báo cáo"
+                        : isCommentNotice
+                          ? "Mở ý kiến / phối hợp"
+                          : "Xem nhiệm vụ"}
+                  </Btn>
+                );
+              })()}
               {!n.readBy?.includes(user.id) && (
                 <Btn
                   small

@@ -17,6 +17,7 @@ import {
   reportWindow,
   stateNames,
   reportScheduleLabel,
+  localDate,
 } from "@/lib/domain";
 import {
   reportingUnits,
@@ -71,7 +72,7 @@ export function ReportingPortal({
   const [tab, setTab] = useState("dashboard"),
     [taskFilter, setTaskFilter] = useState("all"),
     [unitFilter, setUnitFilter] = useState(""),
-    [month, setMonth] = useState("2026-10"),
+    [month, setMonth] = useState(() => localDate().slice(0, 7)),
     [search, setSearch] = useState(""),
     [task, setTask] = useState<any>(null),
     [form, setForm] = useState<any>({}),
@@ -116,13 +117,16 @@ export function ReportingPortal({
   }, [task]);
   const unitName = (id: string) =>
     data.units.find((u: any) => u.id === id)?.name || "—";
-  const periodTasks = data.tasks.filter((t: any) => t.month === month);
+  const periodTasks = data.tasks.filter(
+    (t: any) =>
+      t.month === month &&
+      (!search || t.title.toLowerCase().includes(search.toLowerCase())),
+  );
   const proposalTasks = periodTasks.filter(
     (t: any) =>
       t.status === "pending" &&
       t.proposalSource === "unit" &&
-      t.author === user.id &&
-      user.units.includes(t.unit),
+      user.units?.includes(t.unit),
   );
   const assignedPeriodTasks = periodTasks.filter(
     (t: any) => !["draft", "pending"].includes(t.status),
@@ -144,13 +148,13 @@ export function ReportingPortal({
       (r: any) =>
         r.month === month &&
         (r.author === user.id ||
-          user.units.includes(r.unit) ||
+          user.units?.includes(r.unit) ||
           (r.state !== "draft" &&
             periodTasks.some((t: any) => t.id === r.taskId))),
     )
     .sort((a: any, b: any) => b.updated.localeCompare(a.updated));
   const editable = (r: any) =>
-    r.author === user.id &&
+    (r.author === user.id || user.units?.includes(r.unit)) &&
     ["draft", "returned"].includes(r.state) &&
     canReport(
       user,
@@ -565,7 +569,7 @@ export function ReportingPortal({
     .filter(
       (n: any) =>
         n.category === "admin-directive" ||
-        periodTasks.some((t: any) => t.id === n.taskId),
+        data.tasks.some((t: any) => t.id === n.taskId),
     )
     .sort((a: any, b: any) => {
       const priority = noticePriorityFor(a).rank - noticePriorityFor(b).rank;
@@ -573,12 +577,10 @@ export function ReportingPortal({
     });
   const adminRequests = portalNotices.filter(isAdminRequestNotice);
   const directiveNotices = adminRequests.filter(
-    (notice: any) =>
-      notice.category === "admin-directive" &&
-      !notice.readBy?.includes(user.id),
+    (notice: any) => notice.category === "admin-directive",
   );
   useEffect(() => {
-    const current = new Set(
+    const current = new Set<string>(
       data.notices
         .filter((notice: any) => notice.category === "admin-directive")
         .map((notice: any) => notice.id),
