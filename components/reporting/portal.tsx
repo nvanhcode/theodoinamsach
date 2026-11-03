@@ -31,6 +31,7 @@ import {
 import { noticePriorityFor } from "@/lib/notice-priority";
 import { buildTaskTemplate, parseTaskExcel } from "@/lib/task-excel";
 import { saveImportRows } from "@/lib/save-import";
+import { uploadError } from "@/lib/upload-error";
 import {
   isPercentageProgressTask,
   normalizePercentageReport,
@@ -405,8 +406,15 @@ export function ReportingPortal({
             headers: { "X-NS-Request": "1" },
             body: fd,
           });
-          const result: any = await response.json();
-          if (!response.ok) throw new Error(file.name + ": " + result.error);
+          const result: any = await response.json().catch(() => ({}));
+          if (!response.ok)
+            throw new Error(
+              uploadError(
+                response.status,
+                result.error && file.name + ": " + result.error,
+                file.name,
+              ),
+            );
           return file;
         }),
       );
@@ -500,8 +508,15 @@ export function ReportingPortal({
             headers: { "X-NS-Request": "1" },
             body: fd,
           });
-          const result: any = await response.json();
-          if (!response.ok) throw new Error(file.name + ": " + result.error);
+          const result: any = await response.json().catch(() => ({}));
+          if (!response.ok)
+            throw new Error(
+              uploadError(
+                response.status,
+                result.error && file.name + ": " + result.error,
+                file.name,
+              ),
+            );
           count++;
           setMessage(`Đang tải tệp ${count}/${files.length}…`);
           return file;

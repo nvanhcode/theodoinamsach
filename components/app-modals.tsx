@@ -776,9 +776,10 @@ export function AppModals() {
                         className="mt-3"
                         type="file"
                         disabled={busy}
-                        accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.mp4,.webm"
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp,.mp4,.webm,.zip,.rar,.7z"
                         onChange={(e) => {
                           const f = e.target.files?.[0];
+                          e.target.value = "";
                           if (f)
                             run(
                               () => upload(selectedTask.id, f),
@@ -2188,10 +2189,11 @@ export function AppModals() {
                 <Field label="Tải minh chứng (ảnh, video, hồ sơ)">
                   <input
                     type="file"
-                    accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.mp4,.webm"
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp,.mp4,.webm,.zip,.rar,.7z"
                     disabled={busy}
                     onChange={(e) => {
                       const f = e.target.files?.[0];
+                      e.target.value = "";
                       if (f)
                         run(
                           () => upload(form.taskId, f),
@@ -2623,9 +2625,10 @@ export function AppModals() {
                           type="file"
                           className="hidden"
                           disabled={busy}
-                          accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.mp4,.webm"
+                          accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp,.mp4,.webm,.zip,.rar,.7z"
                           onChange={(e) => {
                             const f = e.target.files?.[0];
+                            e.target.value = "";
                             if (f)
                               run(
                                 () => upload(form.id, f),
@@ -3000,10 +3003,11 @@ export function AppModals() {
               {office(user) && (
                 <input
                   type="file"
-                  accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.mp4,.webm"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp,.mp4,.webm,.zip,.rar,.7z"
                   disabled={busy}
                   onChange={(e) => {
                     const f = e.target.files?.[0];
+                    e.target.value = "";
                     if (f)
                       run(
                         () => upload(form.id, f),

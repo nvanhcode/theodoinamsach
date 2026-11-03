@@ -27,6 +27,7 @@ import {
 import { reminderPriority } from "@/lib/reminder-priority";
 import { matchesProgressStatus } from "@/lib/progress-summary";
 import { saveImportRows } from "@/lib/save-import";
+import { uploadError } from "@/lib/upload-error";
 import { useRouter } from "next/navigation";
 import { buildTaskTemplate, parseTaskExcel } from "@/lib/task-excel";
 import {
@@ -763,6 +764,8 @@ export function AppProvider({
   }
 
   async function upload(parentId: string, file: File) {
+    if (file.size > 25 * 1024 * 1024)
+      throw new Error(file.name + ": tệp tối đa 25 MB.");
     const fd = new FormData();
     fd.set("parentId", parentId);
     fd.set("file", file);
@@ -772,8 +775,8 @@ export function AppProvider({
       headers: { "X-NS-Request": "1" },
       body: fd,
     });
-    const x: any = await r.json();
-    if (!r.ok) throw new Error(x.error);
+    const x: any = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(uploadError(r.status, x.error, file.name));
     return x;
   }
 

@@ -2207,7 +2207,7 @@ async function handle(req: Request, initialDefault = false) {
         "Tệp tối đa 25 MB.",
         400,
       );
-      // Check only the file signature before streaming the original body to R2.
+      // Check only the file signature before handing the original Blob to R2.
       // Reading the entire upload into memory adds a second copy of every file.
       const signature = new Uint8Array(await file.slice(0, 16).arrayBuffer());
       const valid =
@@ -2251,7 +2251,9 @@ async function handle(req: Request, initialDefault = false) {
           400,
         );
       const fid = id();
-      await bucket().put(fid, file.stream());
+      // R2 rejects a bare file.stream() because its length is unknown; a Blob
+      // carries its size, so pass the File itself.
+      await bucket().put(fid, file);
       try {
         if (r.kind === "report") {
           // Keep each attachment independent from the report version so several

@@ -76,7 +76,9 @@ export const env = {
   BUCKET: {
     async put(id: string, bytes: any) {
       const content =
-        bytes && typeof bytes.getReader === "function"
+        bytes &&
+        (typeof bytes.getReader === "function" ||
+          typeof bytes.arrayBuffer === "function")
           ? Buffer.from(await new Response(bytes).arrayBuffer())
           : Buffer.from(bytes);
       writeFileSync(path.join(root, "files", id), content);
