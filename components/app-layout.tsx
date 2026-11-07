@@ -415,7 +415,7 @@ export function AppLayout({
               ) && (
                 <Pick
                   label="Trạng thái"
-                  value={status}
+                  value={status === "notStarted" ? "notAssigned" : status}
                   onChange={setStatus}
                   options={[
                     ["", "Tất cả trạng thái"],
@@ -427,9 +427,9 @@ export function AppLayout({
                           ["unfinished", "Chưa hoàn thành"],
                         ]
                       : []),
-                    ["activeWork", "Đang thực hiện, trong hạn"],
-                    ["notStarted", "Chưa triển khai, trong hạn"],
+                    ["activeWork", "Đang thực hiện, còn hạn"],
                     ["overdue", "Quá hạn nhiệm vụ"],
+                    ["notAssigned", "Chưa giao (dự thảo, chờ duyệt)"],
                     ["lateReport", "Chậm báo cáo"],
                     ["carry", "Nhiệm vụ chuyển tiếp"],
                   ]}

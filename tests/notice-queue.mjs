@@ -118,8 +118,7 @@ await build({
 });
 const { noticeRecipientStatus, unreadNoticeRecipientCount } = await import(
   pathToFileURL(
-    process.cwd() +
-      "/.sites-runtime/notice-receipts-test/notice-receipts.mjs",
+    process.cwd() + "/.sites-runtime/notice-receipts-test/notice-receipts.mjs",
   )
 );
 const receiptUsers = [
@@ -151,3 +150,78 @@ assert.equal(
   0,
 );
 console.log("PASS notification receipt counts decrease per active recipient");
+
+await build({
+  configFile: false,
+  build: {
+    ssr: "lib/notice-priority.ts",
+    outDir: ".sites-runtime/notice-priority-test",
+    rollupOptions: { output: { entryFileNames: "notice-priority.mjs" } },
+  },
+});
+{
+  const { noticePriorityFor } = await import(
+    pathToFileURL(
+      process.cwd() +
+        "/.sites-runtime/notice-priority-test/notice-priority.mjs",
+    )
+  );
+  const data = {
+    tasks: [
+      { id: "a", status: "done" },
+      { id: "b", status: "assigned" },
+      { id: "c", status: "returned" },
+    ],
+    reports: [
+      { id: "r1", state: "confirmed" },
+      { id: "r2", state: "submitted" },
+    ],
+  };
+  const label = (n) => noticePriorityFor(n, data).label;
+  assert.equal(
+    label({
+      id: "notice-report-r1-v1",
+      taskId: "b",
+      category: "report-submitted",
+      title: "Báo cáo đơn vị cần phê duyệt · X: b",
+    }),
+    "Đã xử lý",
+  );
+  assert.equal(
+    label({
+      id: "notice-report-r2-v1",
+      taskId: "b",
+      category: "report-submitted",
+      title: "Báo cáo đơn vị cần phê duyệt · X: b",
+    }),
+    "Chờ xử lý",
+  );
+  assert.equal(
+    label({ taskId: "a", title: "Nhiệm vụ quá hạn · X: a" }),
+    "Đã xử lý",
+  );
+  assert.equal(
+    label({ taskId: "b", title: "Nhiệm vụ quá hạn · X: b" }),
+    "Ưu tiên cao",
+  );
+  assert.equal(
+    label({ taskId: "c", title: "Báo cáo cần bổ sung: thiếu" }),
+    "Ưu tiên cao",
+  );
+  assert.equal(
+    label({ taskId: "b", title: "Báo cáo cần bổ sung: thiếu" }),
+    "Đã xử lý",
+  );
+  assert.equal(
+    label({ taskId: "b", title: "Nhiệm vụ chờ duyệt: b" }),
+    "Đã xử lý",
+  );
+  assert.equal(
+    label({ taskId: "b", title: "Nhiệm vụ được giao: Rà soát việc quá hạn" }),
+    "Thông tin",
+    "task title words do not change the notice kind",
+  );
+  console.log(
+    "PASS handled notices drop to Đã xử lý instead of staying urgent",
+  );
+}

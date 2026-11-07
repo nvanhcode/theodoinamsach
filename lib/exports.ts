@@ -1,4 +1,5 @@
 import { legacyExcel } from "./legacy-excel";
+import { isGivenWork, taskBucket } from "./progress-summary";
 import {
   stateNames,
   reportScheduleLabel,
@@ -516,17 +517,27 @@ export async function exportAssignmentExcel(
         partnerCount,
         leadTasks.length + partnerCount,
         leadTasks.filter((t: any) => t.status === "done").length,
-        leadTasks.filter((t: any) => deadlineState(t) === "overdue").length,
+        leadTasks.filter(
+          (t: any) => taskBucket(t, new Date(), cfg.warningDays) === "overdue",
+        ).length,
         leadTasks.filter((t: any) =>
           ["missing", "late"].includes(
             reportState(t, data.reports, new Date(), cfg),
           ),
         ).length,
-        leadTasks.reduce(
-          (n: number, t: any) => n + (Number(t.progress) || 0),
-          0,
-        ) /
-          Math.max(1, leadTasks.length) /
+        // Average only over work actually handed to the unit (same scope as
+        // "Đã giao việc"); a done task always counts as 100%.
+        leadTasks
+          .filter(isGivenWork)
+          .reduce(
+            (n: number, t: any) =>
+              n +
+              (t.status === "done"
+                ? 100
+                : Math.min(100, Number(t.progress) || 0)),
+            0,
+          ) /
+          Math.max(1, leadTasks.filter(isGivenWork).length) /
           100,
       ];
     }),

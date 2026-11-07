@@ -14,6 +14,8 @@ const {
   progressCounts,
   progressUnits,
   matchesProgressStatus,
+  bucketCounts,
+  matchesTaskFilter,
 } = await import(
   pathToFileURL(process.cwd() + "/.sites-runtime/progress-test/summary.mjs")
 );
@@ -95,3 +97,49 @@ assert.equal(completionPercentage(0, 0), null, "no assigned tasks has no rate");
 console.log(
   "PASS confirmed completion, status counts, percentage, scope and historical tasks",
 );
+
+// Dashboard cards, progress table and filters reconcile on the same tasks.
+{
+  const now = new Date("2026-11-10T03:00:00Z");
+  const sample = [
+    ["draft", "2026-11-05"],
+    ["pending", "2026-11-30"],
+    ["assigned", "2026-11-05"],
+    ["assigned", "2026-11-30"],
+    ["working", "2026-11-30"],
+    ["review", "2026-11-01"],
+    ["returned", "2026-11-30"],
+    ["done", "2026-11-01"],
+    ["paused", "2026-11-01"],
+    ["cancelled", "2026-11-30"],
+  ].map(([status, due], i) => ({ id: "s" + i, unit: "a", status, due }));
+  const b = bucketCounts(sample, now);
+  assert.deepEqual(b, {
+    total: 10,
+    notAssigned: 2,
+    done: 1,
+    activeWork: 3,
+    overdue: 2,
+    paused: 1,
+    cancelled: 1,
+  });
+  assert.equal(
+    b.notAssigned + b.done + b.activeWork + b.overdue + b.paused + b.cancelled,
+    b.total,
+  );
+  const p = progressCounts(sample);
+  assert.equal(p.givenWork, b.done + b.activeWork + b.overdue + b.paused);
+  assert.equal(p.unfinished, p.givenWork - p.done);
+  for (const key of ["notAssigned", "done", "activeWork", "overdue"])
+    assert.equal(
+      sample.filter((t) => matchesTaskFilter(t, key, now)).length,
+      b[key],
+      "filter " + key + " matches its card",
+    );
+  assert.equal(
+    sample.filter((t) => matchesTaskFilter(t, "notStarted", now)).length,
+    b.notAssigned,
+    "old notStarted links still work",
+  );
+  console.log("PASS dashboard buckets add up to total and match list filters");
+}

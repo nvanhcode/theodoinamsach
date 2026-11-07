@@ -493,7 +493,7 @@ small {
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 23px;
 }
@@ -1221,6 +1221,7 @@ td {
 
   .kpi-grid {
     gap: 10px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .kpi {
@@ -2034,7 +2035,7 @@ tbody tr:hover {
 
 @media (min-width: 1201px) {
   .kpi-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
 

@@ -32,12 +32,27 @@ const data = {
   settings: {},
 };
 const legacyHeaders = [
-  "Mã nhập", "ID hệ thống", "Phiên bản", "Tháng theo dõi",
-  "Số, ký hiệu văn bản", "Nội dung nhiệm vụ", "Đơn vị chủ trì",
-  "Đơn vị phối hợp", "Người phụ trách", "Lãnh đạo theo dõi",
-  "Ngày giao", "Giờ giao", "Thời hạn hoàn thành", "Chế độ báo cáo",
-  "Giờ báo cáo", "Ngày báo cáo tuần", "Chỉ tiêu", "Đơn vị tính",
-  "Sản phẩm đầu ra", "Ghi chú", "Lý do điều chỉnh",
+  "Mã nhập",
+  "ID hệ thống",
+  "Phiên bản",
+  "Tháng theo dõi",
+  "Số, ký hiệu văn bản",
+  "Nội dung nhiệm vụ",
+  "Đơn vị chủ trì",
+  "Đơn vị phối hợp",
+  "Người phụ trách",
+  "Lãnh đạo theo dõi",
+  "Ngày giao",
+  "Giờ giao",
+  "Thời hạn hoàn thành",
+  "Chế độ báo cáo",
+  "Giờ báo cáo",
+  "Ngày báo cáo tuần",
+  "Chỉ tiêu",
+  "Đơn vị tính",
+  "Sản phẩm đầu ra",
+  "Ghi chú",
+  "Lý do điều chỉnh",
   "Yêu cầu thông tin phối hợp",
 ];
 const valid = [
@@ -187,3 +202,81 @@ globalThis.setTimeout = originalSetTimeout;
 console.log(
   "PASS exported assignment workbook imports as update with dates, times and scope preserved",
 );
+
+// Hand-typed unit names, partner lists and date formats.
+{
+  const units = [
+    { id: "kt", name: "Ban Kinh tế – Ngân sách HĐND", active: true },
+    {
+      id: "xd",
+      name: "Phòng Xây dựng, Nông nghiệp và Môi trường",
+      active: true,
+    },
+    { id: "pk", name: "Phòng Kinh tế", active: true },
+    { id: "ca", name: "Công an xã", active: true },
+    { id: "dt", name: "Đoàn Thanh niên", active: true },
+  ];
+  const d2 = { tasks: [], units, documents: [], periods: [], settings: {} };
+  const wb = X.utils.book_new();
+  X.utils.book_append_sheet(
+    wb,
+    X.utils.aoa_to_sheet([
+      taskImportHeaders,
+      [
+        "A",
+        "Ban Kinh tế - Ngân sách HĐND",
+        "Phòng Kinh tế, Phòng Xây dựng, Nông nghiệp và Môi trường",
+        "2.11.2026",
+        "30/11/26",
+        "",
+        "",
+        "C1",
+      ],
+      [
+        "B",
+        "Công an",
+        "Đoàn Thanh niên\nPhòng Kinh tế",
+        "",
+        "15-11-2026",
+        "",
+        "",
+        "C2",
+      ],
+      ["C", "Phòng Kinh tế", "", "28/10/2026", "2026-11-20", "", "", "C3"],
+    ]),
+    "Nhap nhiem vu",
+  );
+  const bytes = X.write(wb, { type: "array", bookType: "xlsx" });
+  const r = await parseTaskExcel(bytes, d2, "2026-11");
+  assert.deepEqual(
+    r.map((x) => x.errors),
+    [[], [], []],
+  );
+  assert.equal(r[0].payload.unit, "kt");
+  assert.deepEqual(r[0].payload.partners, ["pk", "xd"]);
+  assert.equal(r[0].payload.assignedDate, "2026-11-02");
+  assert.equal(r[0].payload.due, "2026-11-30");
+  assert.equal(r[1].payload.unit, "ca");
+  assert.deepEqual(r[1].payload.partners, ["dt", "pk"]);
+  assert.equal(r[1].payload.assignedDate, "2026-11-01");
+  assert.equal(r[2].warnings.length, 1, "assigned date outside period warns");
+  // Re-import of saved rows: nothing re-saved, missing columns kept.
+  const saved = r.map((x, i) => ({
+    ...x.payload,
+    id: "t" + i,
+    version: 2,
+    status: "assigned",
+    owner: "Giữ nguyên",
+    target: 5,
+  }));
+  const again = await parseTaskExcel(bytes, { ...d2, tasks: saved }, "2026-11");
+  assert.ok(again.every((x) => x.mode === "update" && x.saved));
+  assert.ok(
+    again.every(
+      (x) => x.payload.owner === "Giữ nguyên" && x.payload.target === 5,
+    ),
+  );
+  console.log(
+    "PASS hand-typed unit names, comma partners, date formats and idempotent re-import",
+  );
+}

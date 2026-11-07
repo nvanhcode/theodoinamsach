@@ -59,6 +59,7 @@ import {
   reportWindow,
   deadlineState,
   reportState,
+  activeReportWindow,
 } from "@/lib/domain";
 const safe = (s: any, max = 20000) =>
   typeof s === "string" ? s.trim().slice(0, max) : "";
@@ -87,6 +88,42 @@ async function reconcileApprovedCompletions(u: any) {
   if (!approver(u)) return;
   const tasks = await records("task");
   const reports = await records("report");
+  // Older versions left a task in "review" after its report was returned
+  // (or confirmed below 100%), so it was counted as waiting for approval.
+  for (const task of tasks) {
+    if (task.status !== "review") continue;
+    const taskReports = reports.filter(
+      (report: any) => report.taskId === task.id && report.state !== "draft",
+    );
+    if (
+      !taskReports.length ||
+      taskReports.some((report: any) => report.state === "submitted")
+    )
+      continue;
+    const latest = [...taskReports].sort((a: any, b: any) =>
+      (b.reviewed || b.updated || "").localeCompare(
+        a.reviewed || a.updated || "",
+      ),
+    )[0];
+    const next =
+      latest.state === "returned"
+        ? "returned"
+        : latest.state === "confirmed" && Number(latest.progress) < 100
+          ? "working"
+          : "";
+    if (!next) continue;
+    try {
+      const saved = await update(
+        task,
+        { ...task, status: next },
+        u,
+        "Đồng bộ trạng thái nhiệm vụ theo báo cáo đã xử lý",
+      );
+      Object.assign(task, saved);
+    } catch {
+      // Changed concurrently; the next data load retries.
+    }
+  }
   for (const task of tasks) {
     if (task.status !== "review" || Number(task.progress) < 100) continue;
     const taskReports = reports.filter(
@@ -484,7 +521,8 @@ async function handle(req: Request, initialDefault = false) {
       const taskById = new Map(tasks.map((task: any) => [task.id, task]));
       const notices = (await records("notice")).filter((n: any) => {
         const task = n.taskId ? taskById.get(n.taskId) : null;
-        if (!n.taskId || n.category === "admin-directive") return canReadNotice(u, n, null);
+        if (!n.taskId || n.category === "admin-directive")
+          return canReadNotice(u, n, null);
         return task && canReadNotice(u, n, task);
       });
       const fs = await all("SELECT * FROM files");
@@ -521,9 +559,10 @@ async function handle(req: Request, initialDefault = false) {
                   Array.isArray(t.evidenceIds) && t.evidenceIds.includes(f.id),
               )?.id,
           })),
-        users: office(u) || has(u, "tech")
-          ? (await all("SELECT * FROM users")).map(publicUser)
-          : [],
+        users:
+          office(u) || has(u, "tech")
+            ? (await all("SELECT * FROM users")).map(publicUser)
+            : [],
       });
     }
     if (path === "history" && method === "GET") {
@@ -1246,11 +1285,15 @@ async function handle(req: Request, initialDefault = false) {
         ? (importedStatus === "assigned"
             ? "Nhiệm vụ được giao: "
             : importedStatus === "pending"
-              ? "Nhiệm vụ Excel chờ duyệt: "
+              ? importCode
+                ? "Nhiệm vụ Excel chờ duyệt: "
+                : "Nhiệm vụ chờ duyệt: "
               : "Nhiệm vụ đã cập nhật từ Excel: ") + d.title
         : "";
       const notice = (op?: string) =>
-        importAction && importedStatus !== "draft"
+        importAction &&
+        importedStatus !== "draft" &&
+        (!old || old.status !== importedStatus)
           ? [
               stmt(
                 "INSERT INTO records(id,kind,parent_id,data,version,updated) SELECT ?,?,?,?,?,?" +
@@ -1282,7 +1325,7 @@ async function handle(req: Request, initialDefault = false) {
               d,
               u,
               importAction
-                ? "Excel: lưu và " +
+                ? (importCode ? "Excel: lưu và " : "Lưu và ") +
                     (importAction === "assign"
                       ? "giao nhiệm vụ"
                       : importAction === "submit"
@@ -1524,7 +1567,7 @@ async function handle(req: Request, initialDefault = false) {
         400,
       );
       const cfg = await record("settings");
-      const w = reportWindow(t, new Date(), cfg);
+      const w = activeReportWindow(t, new Date(), cfg);
       const old = b.id ? await record(b.id) : null;
       if (old) {
         check(
@@ -1728,18 +1771,24 @@ async function handle(req: Request, initialDefault = false) {
           other.state === "submitted",
       );
       const completesTask =
-        b.action === "confirm" && !otherSubmittedReports && progress >= 100;
+        b.action === "confirm" &&
+        !otherSubmittedReports &&
+        progress >= 100 &&
+        !["paused", "cancelled", "done"].includes(t.status);
       const nextTask = {
         ...t,
         progress,
         quantity,
-        status: otherSubmittedReports
-          ? "review"
-          : progress >= 100
-            ? "done"
-            : ["draft", "assigned", "pending", "review"].includes(t.status)
-              ? "working"
-              : t.status,
+        // Paused/cancelled tasks keep their state; otherwise the confirmed
+        // report decides: another report waiting → review, 100% → done,
+        // anything else (including a previously returned task) → working.
+        status: ["paused", "cancelled", "done"].includes(t.status)
+          ? t.status
+          : otherSubmittedReports
+            ? "review"
+            : progress >= 100
+              ? "done"
+              : "working",
         ...(completesTask ? { completed: now() } : {}),
         result: result || t.result,
         difficulty: difficulty || t.difficulty,
@@ -1758,7 +1807,18 @@ async function handle(req: Request, initialDefault = false) {
               "Xác nhận và đồng bộ báo cáo",
               "Duyệt và cập nhật tiến độ",
             )
-          : await update(r, rd, u, "Yêu cầu bổ sung báo cáo");
+          : !otherSubmittedReports && t.status === "review"
+            ? // The task waits for the unit again, not for the approver.
+              await updatePair(
+                r,
+                rd,
+                t,
+                { ...t, status: "returned" },
+                u,
+                "Yêu cầu bổ sung báo cáo",
+                "Trả lại báo cáo: Cần bổ sung",
+              )
+            : await update(r, rd, u, "Yêu cầu bổ sung báo cáo");
       await notify(
         t,
         b.action === "confirm"
@@ -1816,9 +1876,10 @@ async function handle(req: Request, initialDefault = false) {
         has(u, "editor", "head", "partner") &&
         allowedPartnerUnits.length > 0 &&
         (t.partnerUpdateRequired ?? !!t.partners?.length);
-      const leadPartnerUnits = (office(u) || u.units?.includes(t.unit))
-        ? (t.partners || []).filter((unit: string) => unit !== t.unit)
-        : [];
+      const leadPartnerUnits =
+        office(u) || u.units?.includes(t.unit)
+          ? (t.partners || []).filter((unit: string) => unit !== t.unit)
+          : [];
       const isLeadUpdate =
         b.type === "coordination" &&
         (office(u) || has(u, "editor", "head", "partner")) &&
@@ -1908,7 +1969,9 @@ async function handle(req: Request, initialDefault = false) {
       );
       const files: any[] = [];
       for (let i = 0; i < comments.length; i += 100) {
-        const ids = comments.slice(i, i + 100).map((comment: any) => comment.id);
+        const ids = comments
+          .slice(i, i + 100)
+          .map((comment: any) => comment.id);
         files.push(
           ...(await all(
             `SELECT * FROM files WHERE parent_id IN (${ids.map(() => "?").join(",")})`,
@@ -2400,8 +2463,7 @@ async function handle(req: Request, initialDefault = false) {
       } else if (r.kind === "comment") {
         const task = await taskFor(u, r.taskId);
         check(
-          canSee(u, task) &&
-            canReadTaskComment(u, task, r),
+          canSee(u, task) && canReadTaskComment(u, task, r),
           "Không có quyền xem tệp đính kèm này.",
           403,
         );

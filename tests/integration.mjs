@@ -799,7 +799,13 @@ try {
         admin,
       )
     ).data;
-    const unitNotices = (await call("data", undefined, unitUser)).data.notices;
+    const returnedData = (await call("data", undefined, unitUser)).data;
+    assert.equal(
+      returnedData.tasks.find((t) => t.id === task.id).status,
+      "returned",
+      "returned report puts the task back to the unit (Cần bổ sung)",
+    );
+    const unitNotices = returnedData.notices;
     const partnerNotices = (await call("data", undefined, partnerUser)).data
       .notices;
     const supplement = unitNotices.find(

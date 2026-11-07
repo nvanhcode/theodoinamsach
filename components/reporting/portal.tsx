@@ -15,6 +15,7 @@ import {
   deadlineState,
   reportState,
   reportWindow,
+  activeReportWindow,
   stateNames,
   reportScheduleLabel,
   localDate,
@@ -118,6 +119,7 @@ export function ReportingPortal({
   }, [task]);
   const unitName = (id: string) =>
     data.units.find((u: any) => u.id === id)?.name || "—";
+  const warningDays = Number(data.settings?.warningDays ?? 3);
   const periodTasks = data.tasks.filter(
     (t: any) =>
       t.month === month &&
@@ -179,7 +181,7 @@ export function ReportingPortal({
       taskFilter === "all" ||
       (taskFilter === "lead" && isLead) ||
       (taskFilter === "partner" && isPartner) ||
-      (isLead && matchesSummary(t, taskFilter, reportingStatus));
+      (isLead && matchesSummary(t, taskFilter, reportingStatus, warningDays));
     return (
       matchesRole &&
       (!unitFilter ||
@@ -255,7 +257,7 @@ export function ReportingPortal({
         <div className="unit-task-meta">
           <span>
             <b>Hạn hoàn thành:</b> {dates(t.due)}{" "}
-            {deadlineState(t) === "overdue" && (
+            {deadlineState(t, new Date(), warningDays) === "overdue" && (
               <em className="badge red">Quá hạn nhiệm vụ</em>
             )}
           </span>
@@ -587,7 +589,8 @@ export function ReportingPortal({
         data.tasks.some((t: any) => t.id === n.taskId),
     )
     .sort((a: any, b: any) => {
-      const priority = noticePriorityFor(a).rank - noticePriorityFor(b).rank;
+      const priority =
+        noticePriorityFor(a, data).rank - noticePriorityFor(b, data).rank;
       return priority || b.updated.localeCompare(a.updated);
     });
   const adminRequests = portalNotices.filter(isAdminRequestNotice);
@@ -636,7 +639,9 @@ export function ReportingPortal({
       const returnedReportAlreadyShown =
         reportStatus === "returned" && requestTaskIds.has(t.id);
       return (
-        ["soon", "overdue"].includes(deadlineState(t)) ||
+        ["soon", "overdue"].includes(
+          deadlineState(t, new Date(), warningDays),
+        ) ||
         ["missing", "late"].includes(reportStatus) ||
         (reportStatus === "returned" && !returnedReportAlreadyShown) ||
         (reports.some(
@@ -648,7 +653,7 @@ export function ReportingPortal({
     .sort((a: any, b: any) => {
       const rank = (t: any) => {
         const state = reportingStatus(t);
-        if (deadlineState(t) === "overdue") return 0;
+        if (deadlineState(t, new Date(), warningDays) === "overdue") return 0;
         if (state === "missing") return 1;
         if (state === "returned") return 2;
         if (state === "late") return 3;
@@ -764,7 +769,7 @@ export function ReportingPortal({
     }
   }
   const renderNotice = (n: any) => {
-    const priority = noticePriorityFor(n);
+    const priority = noticePriorityFor(n, data);
     const noticeTask = periodTasks.find((t: any) => t.id === n.taskId);
     return (
       <article className="panel unit-task-card" key={n.id}>
@@ -921,6 +926,7 @@ export function ReportingPortal({
             tasks={leadTasks}
             partnerTasks={partnerTasks}
             reportingStatus={reportingStatus}
+            warningDays={warningDays}
             onFilter={showTasks}
             onTask={(t: any) => openTask(t, undefined, !active(t))}
           />
@@ -1294,7 +1300,8 @@ export function ReportingPortal({
                   )}
                   {reminders.map((t: any) => {
                     const reportStatus = reportingStatus(t);
-                    const overdue = deadlineState(t) === "overdue";
+                    const overdue =
+                      deadlineState(t, new Date(), warningDays) === "overdue";
                     const tone =
                       overdue ||
                       reportStatus === "missing" ||
@@ -1326,17 +1333,21 @@ export function ReportingPortal({
                         >
                           {t.title}
                         </h2>
-                        {["soon", "overdue"].includes(deadlineState(t)) && (
+                        {["soon", "overdue"].includes(
+                          deadlineState(t, new Date(), warningDays),
+                        ) && (
                           <p>
                             <span
                               className={
                                 "badge " +
-                                (deadlineState(t) === "overdue"
+                                (deadlineState(t, new Date(), warningDays) ===
+                                "overdue"
                                   ? "red"
                                   : "amber")
                               }
                             >
-                              {deadlineState(t) === "overdue"
+                              {deadlineState(t, new Date(), warningDays) ===
+                              "overdue"
                                 ? "Quá hạn nhiệm vụ"
                                 : "Sắp đến hạn nhiệm vụ"}
                             </span>{" "}
@@ -1347,7 +1358,8 @@ export function ReportingPortal({
                           <b>Báo cáo:</b> {reportingNames[reportingStatus(t)]} ·
                           Hạn kỳ này:{" "}
                           {dates(
-                            reportWindow(t, new Date(), data.settings).deadline,
+                            activeReportWindow(t, new Date(), data.settings)
+                              .deadline,
                           )}
                         </p>
                         {reports

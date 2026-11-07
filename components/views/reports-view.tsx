@@ -71,9 +71,19 @@ export function ReportsView() {
     period,
     setSnapshots,
     filtered,
-    tasks,
+    tasks: allTasks,
+    unit,
+    group,
+    taskGroup,
     unitName,
   } = useApp();
+  // Monthly bars use the same unit / group / document scope as the table.
+  const tasks = allTasks.filter(
+    (t: any) =>
+      (!unit || t.unit === unit) &&
+      (!group || taskGroup(t) === group) &&
+      (!documentFilter || t.documentId === documentFilter),
+  );
 
   const pendingReports: PendingReport[] = data.reports
     .filter((report: ReportRecord) => {

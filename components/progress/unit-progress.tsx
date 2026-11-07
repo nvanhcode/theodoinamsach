@@ -50,7 +50,8 @@ export function UnitProgress({
           Số liệu nhiệm vụ chủ trì theo tháng và bộ lọc đang chọn. Hoàn thành là
           kết quả đã được xác nhận; chờ xác nhận, cần bổ sung và tạm dừng vẫn
           tính chưa hoàn thành. Dự thảo, chờ duyệt giao việc và nhiệm vụ hủy chỉ
-          nằm trong Tất cả.
+          nằm trong Tất cả. Đối chiếu thẻ tổng quan: Đã giao việc = Hoàn thành +
+          Đang thực hiện + Quá hạn + Tạm dừng.
         </p>
         <div className="table-wrap">
           <table className="unit-progress-table">

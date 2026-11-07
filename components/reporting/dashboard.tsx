@@ -5,17 +5,19 @@ export function matchesSummary(
   t: any,
   key: string,
   reportingStatus: (t: any) => string,
+  warningDays = 3,
 ) {
   if (key === "done") return t.status === "done";
   if (key === "review") return t.status === "review";
   if (key === "active")
     return ["assigned", "working", "review", "returned"].includes(t.status);
-  if (key === "overdue" || key === "soon") return deadlineState(t) === key;
+  if (key === "overdue" || key === "soon")
+    return deadlineState(t, new Date(), warningDays) === key;
   if (key === "missing" || key === "returned")
     return reportingStatus(t) === key;
   if (key === "actionRequired")
     return (
-      ["soon", "overdue"].includes(deadlineState(t)) ||
+      ["soon", "overdue"].includes(deadlineState(t, new Date(), warningDays)) ||
       ["missing", "returned"].includes(reportingStatus(t))
     );
   return true;
@@ -25,6 +27,7 @@ export function ReportingDashboard({
   tasks,
   partnerTasks = [],
   reportingStatus,
+  warningDays = 3,
   onFilter,
   onTask,
 }: any) {
@@ -36,7 +39,9 @@ export function ReportingDashboard({
     ["review", "Báo cáo chờ duyệt", "#a77718"],
   ];
   const priority = [...tasks]
-    .filter((t: any) => matchesSummary(t, "actionRequired", reportingStatus))
+    .filter((t: any) =>
+      matchesSummary(t, "actionRequired", reportingStatus, warningDays),
+    )
     .sort((a: any, b: any) => a.due.localeCompare(b.due))
     .slice(0, 5);
 
@@ -62,7 +67,7 @@ export function ReportingDashboard({
                   : key === "partner"
                     ? partnerTasks.length
                     : tasks.filter((t: any) =>
-                        matchesSummary(t, key, reportingStatus),
+                        matchesSummary(t, key, reportingStatus, warningDays),
                       ).length}
             </strong>
             <small>Xem danh sách →</small>
@@ -82,10 +87,10 @@ export function ReportingDashboard({
               Hạn: {t.due.split("-").reverse().join("/")} ·{" "}
               {stateNames[t.status]}
             </span>
-            {deadlineState(t) === "overdue" && (
+            {deadlineState(t, new Date(), warningDays) === "overdue" && (
               <span className="unit-dashboard-warning">Quá hạn nhiệm vụ</span>
             )}
-            {deadlineState(t) === "soon" && (
+            {deadlineState(t, new Date(), warningDays) === "soon" && (
               <span className="unit-dashboard-warning">
                 Sắp đến hạn nhiệm vụ
               </span>

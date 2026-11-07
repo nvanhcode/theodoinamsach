@@ -21,6 +21,7 @@ const {
   canSee,
   canReport,
   orderedGroups,
+  activeReportWindow,
 } = await import(
   pathToFileURL(process.cwd() + "/.sites-runtime/domain-test/domain.mjs")
 );
@@ -229,6 +230,22 @@ test("Nhiệm vụ giao sau hạn vẫn phải báo cáo ngày tiếp theo", () 
     ),
     "missing",
   ));
+test("Giao sau hạn báo cáo tuần: báo cáo đầu tiên thuộc tuần sau, không tính chậm", () => {
+  const now = new Date("2026-11-07T16:55:00Z"); // thứ Bảy 23:55 giờ VN
+  const late = {
+    id: "late-assigned",
+    unit: "u",
+    status: "assigned",
+    assignedDate: "2026-11-07",
+    assignedTime: "23:54",
+  };
+  const w = activeReportWindow(late, now, defaults);
+  assert.equal(w.key, "2026-11-09");
+  assert.ok(w.deadline > now.toISOString());
+  assert.equal(reportState(late, [], now, defaults), "notDue");
+  const early = { ...late, assignedDate: "2026-11-02", assignedTime: "" };
+  assert.equal(activeReportWindow(early, now, defaults).key, "2026-11-02");
+});
 writeFileSync(
   "tests/DOMAIN-RESULTS.txt",
   n + " domain/time/permission tests passed\n",

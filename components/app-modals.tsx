@@ -72,6 +72,7 @@ import {
   deadlineState,
   reportState,
   reportWindow,
+  activeReportWindow,
   reportScheduleLabel,
   uniqueYear,
   localDate,
@@ -211,12 +212,24 @@ export function AppModals() {
               <span
                 className={
                   "badge " +
-                  (deadlineState(selectedTask || {}) === "overdue"
+                  (deadlineState(
+                    selectedTask || {},
+                    new Date(),
+                    cfg.warningDays,
+                  ) === "overdue"
                     ? "red"
                     : "gray")
                 }
               >
-                {deadlineLabels[deadlineState(selectedTask || {})]}
+                {
+                  deadlineLabels[
+                    deadlineState(
+                      selectedTask || {},
+                      new Date(),
+                      cfg.warningDays,
+                    )
+                  ]
+                }
               </span>
             </div>
           </SheetHeader>
@@ -663,7 +676,10 @@ export function AppModals() {
                         <div className="text-xs muted mt-2">
                           Gửi: {fulltime(r.submitted)} · Hạn:{" "}
                           {fulltime(r.deadline)}
-                          {r.reviewer && " · Xác nhận: " + r.reviewer}
+                          {r.reviewer &&
+                            (r.state === "returned"
+                              ? " · Trả lại: "
+                              : " · Xác nhận: ") + r.reviewer}
                         </div>
                         <div className="actions mt-3">
                           {r.author === user.id &&
@@ -1280,12 +1296,25 @@ export function AppModals() {
                               }
                             >
                               {r.errors.join("; ") || r.message || "Hợp lệ"}
+                              {!r.errors.length && r.warnings?.length > 0 && (
+                                <div className="text-sm text-amber-700">
+                                  Lưu ý: {r.warnings.join("; ")}
+                                </div>
+                              )}
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
+                  {importRows.some((r: any) => r.errors.length) && (
+                    <p className="text-sm text-red-700 mb-3" role="alert">
+                      {importRows.filter((r: any) => r.errors.length).length}{" "}
+                      dòng lỗi sẽ không được lưu. Sửa các dòng này trong file
+                      rồi chọn lại file (dòng đã lưu không bị tạo trùng), hoặc
+                      lưu trước các dòng hợp lệ.
+                    </p>
+                  )}
                   <div className="form-footer">
                     <Pick
                       label="Cách xử lý nhiệm vụ Excel"
@@ -1312,8 +1341,9 @@ export function AppModals() {
                       primary
                       disabled={
                         busy ||
-                        importRows.some((r: any) => r.errors.length) ||
-                        importRows.every((r: any) => r.saved)
+                        !importRows.some(
+                          (r: any) => !r.saved && !r.errors.length,
+                        )
                       }
                       onClick={saveTaskImport}
                     >
@@ -1325,7 +1355,13 @@ export function AppModals() {
                           importSaveProgress.total
                         : importRows.every((r: any) => r.saved)
                           ? "Đã lưu hệ thống"
-                          : "Lưu hệ thống"}
+                          : importRows.some((r: any) => r.errors.length)
+                            ? "Lưu " +
+                              importRows.filter(
+                                (r: any) => !r.saved && !r.errors.length,
+                              ).length +
+                              " dòng hợp lệ"
+                            : "Lưu hệ thống"}
                     </Btn>
                   </div>
                 </>
@@ -1630,10 +1666,41 @@ export function AppModals() {
               </div>
               <div className="form-footer">
                 <Btn onClick={() => setModal("")}>Hủy</Btn>
-                <Btn primary type="submit" disabled={busy}>
+                <Btn
+                  primary={
+                    !!form.id && !["draft", "pending"].includes(form.status)
+                  }
+                  type="submit"
+                  disabled={busy}
+                >
                   <Save />
                   {form.id ? "Lưu thay đổi" : "Lưu nháp nhiệm vụ"}
                 </Btn>
+                {(!form.id || ["draft", "pending"].includes(form.status)) &&
+                  (approver(user) ||
+                    (office(user) && form.status !== "pending")) && (
+                    <Btn
+                      primary
+                      type="button"
+                      disabled={busy}
+                      onClick={(e: any) => {
+                        const f = e.currentTarget.closest("form");
+                        if (f && !f.reportValidity()) return;
+                        const action = approver(user) ? "assign" : "submit";
+                        run(
+                          () => api("task", { ...form, importAction: action }),
+                          action === "assign"
+                            ? "Đã lưu và giao nhiệm vụ đến đơn vị."
+                            : "Đã lưu và trình duyệt giao việc.",
+                        );
+                      }}
+                    >
+                      <Send />
+                      {approver(user)
+                        ? "Lưu và giao ngay"
+                        : "Lưu và trình duyệt"}
+                    </Btn>
+                  )}
               </div>
             </form>
           )}
@@ -2178,7 +2245,7 @@ export function AppModals() {
                 · Hạn kỳ này:{" "}
                 {fulltime(
                   form.deadline ||
-                    reportWindow(
+                    activeReportWindow(
                       tasks.find((t: any) => t.id === form.taskId) || {},
                       new Date(),
                       cfg,
@@ -2772,10 +2839,9 @@ export function AppModals() {
                           <Pick
                             value={form.unit || selectedTask.partners[0]}
                             onChange={(v: string) => change("unit", v)}
-                            options={selectedTask.partners.map((pid: string) => [
-                              pid,
-                              unitName(pid),
-                            ])}
+                            options={selectedTask.partners.map(
+                              (pid: string) => [pid, unitName(pid)],
+                            )}
                           />
                         </Field>
                       )}

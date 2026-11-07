@@ -64,7 +64,7 @@ export function NoticesView() {
     )
     .sort((a: any, b: any) => {
       const priority =
-        noticePriorityFor(a).rank - noticePriorityFor(b).rank;
+        noticePriorityFor(a, data).rank - noticePriorityFor(b, data).rank;
       return priority || b.updated.localeCompare(a.updated);
     });
   const unreadUnitReads = unreadNoticeRecipientCount(
@@ -303,15 +303,15 @@ export function NoticesView() {
               <span
                 className={
                   "notice-priority-tag notice-priority-" +
-                  noticePriorityFor(n).tone
+                  noticePriorityFor(n, data).tone
                 }
               >
-                {noticePriorityFor(n).label}
+                {noticePriorityFor(n, data).label}
               </span>
               <h3
                 className={
                   "notice-priority-text notice-priority-text-" +
-                  noticePriorityFor(n).tone
+                  noticePriorityFor(n, data).tone
                 }
               >
                 {assignmentNoticeTitle(n.title)}
@@ -328,24 +328,43 @@ export function NoticesView() {
                         Trạng thái đã đọc theo đơn vị
                       </summary>
                       <div className="mt-2 space-y-2">
-                        {noticeRecipientStatus(n, data.users).map((receipt: any) => (
-                          <div key={receipt.unitId}>
-                            <b>{unitName(receipt.unitId)}</b>
-                            {receipt.recipients.length ? (
-                              <>
-                                <span> · Đã đọc {receipt.read.length}/{receipt.recipients.length}</span>
-                                {receipt.read.length > 0 && (
-                                  <p className="muted">Đã đọc: {receipt.read.map((person: any) => person.name).join(", ")}</p>
-                                )}
-                                {receipt.unread.length > 0 && (
-                                  <p className="text-amber-700">Chưa đọc: {receipt.unread.map((person: any) => person.name).join(", ")}</p>
-                                )}
-                              </>
-                            ) : (
-                              <p className="text-amber-700">Chưa có tài khoản đang hoạt động được gán cho đơn vị.</p>
-                            )}
-                          </div>
-                        ))}
+                        {noticeRecipientStatus(n, data.users).map(
+                          (receipt: any) => (
+                            <div key={receipt.unitId}>
+                              <b>{unitName(receipt.unitId)}</b>
+                              {receipt.recipients.length ? (
+                                <>
+                                  <span>
+                                    {" "}
+                                    · Đã đọc {receipt.read.length}/
+                                    {receipt.recipients.length}
+                                  </span>
+                                  {receipt.read.length > 0 && (
+                                    <p className="muted">
+                                      Đã đọc:{" "}
+                                      {receipt.read
+                                        .map((person: any) => person.name)
+                                        .join(", ")}
+                                    </p>
+                                  )}
+                                  {receipt.unread.length > 0 && (
+                                    <p className="text-amber-700">
+                                      Chưa đọc:{" "}
+                                      {receipt.unread
+                                        .map((person: any) => person.name)
+                                        .join(", ")}
+                                    </p>
+                                  )}
+                                </>
+                              ) : (
+                                <p className="text-amber-700">
+                                  Chưa có tài khoản đang hoạt động được gán cho
+                                  đơn vị.
+                                </p>
+                              )}
+                            </div>
+                          ),
+                        )}
                       </div>
                     </details>
                   )}

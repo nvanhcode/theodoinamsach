@@ -1,5 +1,10 @@
 import { records, record, log } from "./server";
-import { deadlineState, reportState, reportWindow } from "./domain";
+import {
+  activeReportWindow,
+  deadlineState,
+  reportState,
+  reportWindow,
+} from "./domain";
 import { notify, notifyReportApproval } from "./notice-writer";
 export async function checkReminders() {
   const cfg = await record("settings");
@@ -29,17 +34,34 @@ export async function checkReminders() {
       messages.push(
         "Chưa gửi báo cáo " + (w.frequency === "daily" ? "hằng ngày" : "tuần"),
       );
-    else if (
+    // Remind shortly before the deadline the next report actually counts for
+    // (a task handed over after this window's deadline reports next window).
+    const next = activeReportWindow(t, new Date(), cfg);
+    const remindKey = next.key;
+    if (
       rs === "notDue" &&
+      Date.now() <= new Date(next.deadline).getTime() &&
       Date.now() >
-        new Date(w.deadline).getTime() -
-          (w.frequency === "daily" ? 3600000 : 86400000)
+        new Date(next.deadline).getTime() -
+          (next.frequency === "daily" ? 3600000 : 86400000) &&
+      !reports.some(
+        (r: any) =>
+          r.taskId === t.id &&
+          r.submitted &&
+          (r.periodKey || r.week) === next.key,
+      )
     )
       messages.push(
-        "Nhắc báo cáo " + (w.frequency === "daily" ? "hằng ngày" : "tuần"),
+        "Nhắc báo cáo " + (next.frequency === "daily" ? "hằng ngày" : "tuần"),
       );
     for (const message of messages) {
-      const key = "notice-auto-" + t.id + "-" + w.key + "-" + message;
+      const key =
+        "notice-auto-" +
+        t.id +
+        "-" +
+        (message.startsWith("Nhắc báo cáo") ? remindKey : w.key) +
+        "-" +
+        message;
       count += await notify(
         t,
         message + ": " + t.title,

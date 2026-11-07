@@ -15,9 +15,22 @@ import { ProgressView } from "@/components/views/progress-view";
 import { fmt } from "@/components/common-ui";
 
 export function DashboardView() {
-  const { total, done, working, overdue, notStarted, late, cfg, w, navigate } =
-    useApp();
+  const {
+    total,
+    done,
+    working,
+    overdue,
+    notStarted,
+    paused,
+    cancelled,
+    late,
+    cfg,
+    w,
+    navigate,
+  } = useApp();
 
+  // Five mutually exclusive groups (plus paused/cancelled) that always add up
+  // to "Tổng nhiệm vụ" and match the progress table below.
   const kpis = [
     {
       count: total,
@@ -40,43 +53,39 @@ export function DashboardView() {
       title: "Đang thực hiện",
       Icon: PlayCircle,
       filter: "activeWork",
-      note: "Bao gồm đã giao, đang làm và chờ xác nhận",
+      note: "Đã giao, đang làm, chờ xác nhận, cần bổ sung · còn hạn",
       color: "#a45f00",
     },
     {
+      count: overdue,
+      title: "Quá hạn",
+      Icon: FileText,
+      filter: "overdue",
+      note: "Đã giao, chưa hoàn thành, quá thời hạn",
+      color: "#c2394e",
+    },
+    {
       count: notStarted,
-      title: "Chưa bắt đầu",
+      title: "Chưa giao",
       Icon: Clock3,
-      filter: "notStarted",
-      note: "Còn trong hạn, chưa triển khai",
+      filter: "notAssigned",
+      note: "Dự thảo hoặc chờ duyệt giao việc",
       color: "#64758b",
     },
   ] as const;
 
   return (
     <>
-      {(overdue > 0 || late > 0) && (
+      {late > 0 && (
         <div className="flex flex-wrap items-center gap-2 mb-4">
-          {overdue > 0 && (
-            <button
-              onClick={() => navigate("dashboard", { status: "overdue" })}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold hover:bg-rose-100 transition-colors shadow-sm"
-            >
-              <FileText size={14} />
-              <span>{overdue} nhiệm vụ quá hạn</span>
-              <ChevronRight size={13} />
-            </button>
-          )}
-          {late > 0 && (
-            <button
-              onClick={() => navigate("dashboard", { status: "lateReport" })}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-50 border border-purple-200 text-purple-700 text-xs font-semibold hover:bg-purple-100 transition-colors shadow-sm"
-            >
-              <TriangleAlert size={14} />
-              <span>{late} nhiệm vụ chậm báo cáo</span>
-              <ChevronRight size={13} />
-            </button>
-          )}
+          <button
+            onClick={() => navigate("dashboard", { status: "lateReport" })}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-50 border border-purple-200 text-purple-700 text-xs font-semibold hover:bg-purple-100 transition-colors shadow-sm"
+          >
+            <TriangleAlert size={14} />
+            <span>{late} nhiệm vụ chậm báo cáo</span>
+            <ChevronRight size={13} />
+          </button>
         </div>
       )}
 
@@ -97,6 +106,29 @@ export function DashboardView() {
           </button>
         ))}
       </section>
+      {paused + cancelled > 0 && (
+        <p className="muted text-xs -mt-3 mb-4">
+          Ngoài các nhóm trên:{" "}
+          {paused > 0 && (
+            <button
+              className="underline"
+              onClick={() => navigate("dashboard", { status: "paused" })}
+            >
+              {paused} tạm dừng
+            </button>
+          )}
+          {paused > 0 && cancelled > 0 && " · "}
+          {cancelled > 0 && (
+            <button
+              className="underline"
+              onClick={() => navigate("dashboard", { status: "cancelled" })}
+            >
+              {cancelled} đã hủy
+            </button>
+          )}
+          .
+        </p>
+      )}
 
       <div className="mt-5">
         <ProgressView />

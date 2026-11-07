@@ -198,7 +198,8 @@ assert.equal(
   true,
 );
 assert.equal(
-  matchesSummary(task, "overdue", () => "missing"),
+  // Far-future deadline so the check does not depend on today's date.
+  matchesSummary({ ...task, due: "2099-12-31" }, "overdue", () => "missing"),
   false,
 );
 assert.equal(

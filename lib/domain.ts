@@ -150,6 +150,27 @@ export function reportWindow(t: any, now = new Date(), cfg: any = defaults) {
     frequency: "weekly",
   };
 }
+/**
+ * The window a new report belongs to. A task handed over after this window's
+ * deadline is not due yet (see reportState), so its first report counts for
+ * the next window instead of being marked late against a deadline that passed
+ * before the task existed.
+ */
+export function activeReportWindow(
+  t: any,
+  now = new Date(),
+  cfg: any = defaults,
+) {
+  const w = reportWindow(t, now, cfg);
+  const assigned = t.assignedDate
+    ? new Date(
+        t.assignedDate + "T" + (t.assignedTime || "00:00") + ":00+07:00",
+      ).getTime()
+    : NaN;
+  if (!(assigned > new Date(w.deadline).getTime())) return w;
+  const step = (w.frequency === "daily" ? 1 : 7) * 86400000;
+  return reportWindow(t, new Date(now.getTime() + step), cfg);
+}
 export function reportScheduleLabel(t: any, cfg: any = defaults) {
   cfg = { ...defaults, ...cfg };
   const w = reportWindow(t, new Date(), cfg);

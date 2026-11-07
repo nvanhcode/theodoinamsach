@@ -43,6 +43,7 @@ export function TableTasks({ rows, full = false }: any) {
     user,
     page,
     unitName,
+    cfg,
   } = useApp();
 
   const taskRows = rows || paginated;
@@ -158,13 +159,21 @@ export function TableTasks({ rows, full = false }: any) {
                   <div
                     style={{
                       fontSize: 13,
-                      color: deadlineState(t) === "overdue" ? "#c2394e" : "",
+                      color:
+                        deadlineState(t, new Date(), cfg.warningDays) ===
+                        "overdue"
+                          ? "#c2394e"
+                          : "",
                     }}
                   >
                     {fmt(t.due)}
                   </div>
                   <small className="muted" style={{ fontSize: 11 }}>
-                    {deadlineLabels[deadlineState(t)]}
+                    {
+                      deadlineLabels[
+                        deadlineState(t, new Date(), cfg.warningDays)
+                      ]
+                    }
                   </small>
                 </TableCell>
                 <TableCell className="progress-cell">

@@ -14,6 +14,41 @@ const norm = (v: any) =>
     .trim()
     .normalize("NFC")
     .toLocaleLowerCase("vi");
+/**
+ * Loose key for unit names typed by hand: unify dash variants (– — ‐ -),
+ * collapse spaces (incl. non-breaking) and ignore spacing around dashes.
+ */
+export const unitKey = (v: any) =>
+  norm(v)
+    .replace(/[\u00a0\s]+/g, " ")
+    .replace(/\s*[-‐‑‒–—―]\s*/g, " - ")
+    .replace(/[.。]+$/, "")
+    .trim();
+/** Excel date serial, d/m/yyyy, d-m-yyyy, d.m.yyyy, d/m/yy, yyyy-mm-dd. */
+export function excelDate(v: any, date1904 = false, X?: any) {
+  if (v instanceof Date && !Number.isNaN(+v))
+    return new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "Asia/Ho_Chi_Minh",
+    }).format(v);
+  if (typeof v === "number" && X) {
+    const d = X.SSF.parse_date_code(v, { date1904 });
+    return d
+      ? `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`
+      : "";
+  }
+  const s = String(v ?? "").trim();
+  const iso = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[ T].*)?$/);
+  if (iso)
+    return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+  const m = s.match(
+    /^(\d{1,2})\s*[/.-]\s*(\d{1,2})\s*[/.-]\s*(\d{2}|\d{4})(?:\s.*)?$/,
+  );
+  if (m) {
+    const year = m[3].length === 2 ? "20" + m[3] : m[3];
+    return `${year}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  }
+  return s;
+}
 const newImportCode = (month: string, row: number) => {
   const random =
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -39,6 +74,10 @@ export async function buildTaskTemplate(
     }),
   ];
   const ws = X.utils.aoa_to_sheet(rows);
+  // Date columns are text cells: "02/11/2026" stays day/month whatever the
+  // regional settings of the Excel that fills the file.
+  for (let r = 2; r <= 201; r++)
+    for (const c of ["D", "E"]) ws[c + r] = { t: "s", v: "", z: "@" };
   ws["!cols"] = [
     { wch: 62 },
     { wch: 34 },
@@ -69,7 +108,10 @@ export async function buildTaskTemplate(
   const guide = X.utils.aoa_to_sheet([
     ["HƯỚNG DẪN NHẬP NHANH"],
     ["Kỳ theo dõi", month],
-    ["Cần nhập", "Nội dung nhiệm vụ và thời hạn hoàn thành."],
+    [
+      "Cần nhập",
+      "Nội dung nhiệm vụ, đơn vị chủ trì và thời hạn hoàn thành. Ghi ngày theo ngày/tháng/năm, ví dụ 02/11/2026.",
+    ],
     [
       "Đơn vị chủ trì",
       options.defaultUnitId
@@ -78,7 +120,7 @@ export async function buildTaskTemplate(
     ],
     [
       "Đơn vị phối hợp",
-      "Không bắt buộc. Nếu có, ghi tên các đơn vị và ngăn cách bằng dấu chấm phẩy (;).",
+      "Không bắt buộc. Nếu có, ghi tên các đơn vị và ngăn cách bằng dấu chấm phẩy (;) hoặc xuống dòng.",
     ],
     ["Ngày giao", "Không bắt buộc; để trống sẽ lấy ngày đầu kỳ đang chọn."],
     ["Số, ký hiệu và ghi chú", "Không bắt buộc."],
@@ -97,7 +139,44 @@ export async function buildTaskTemplate(
   ]);
   guide["!cols"] = [{ wch: 28 }, { wch: 110 }];
   X.utils.book_append_sheet(wb, guide, "Huong dan");
-  return new Uint8Array(X.write(wb, { bookType: "xlsx", type: "array" }));
+  const unitCount = data.units.filter((u: any) => u.active).length;
+  return addUnitDropdown(
+    X,
+    new Uint8Array(X.write(wb, { bookType: "xlsx", type: "array" })),
+    unitCount,
+  );
+}
+
+/**
+ * SheetJS cannot write data validation, so add the "Đơn vị chủ trì" dropdown
+ * (list from sheet "Danh muc don vi") straight into the sheet XML.
+ */
+function addUnitDropdown(X: any, bytes: Uint8Array, unitCount: number) {
+  if (!unitCount) return bytes;
+  try {
+    const zip = X.CFB.read(bytes, { type: "array" });
+    const index = zip.FullPaths.findIndex((p: string) =>
+      p.endsWith("/xl/worksheets/sheet1.xml"),
+    );
+    if (index < 0) return bytes;
+    const entry = zip.FileIndex[index];
+    const xml = new TextDecoder().decode(entry.content);
+    const validation =
+      '<dataValidations count="1"><dataValidation type="list" errorStyle="warning" allowBlank="1" showInputMessage="1" showErrorMessage="1" errorTitle="Đơn vị chưa có trong danh mục" error="Chọn tên đơn vị trong danh sách để hệ thống nhận đúng." promptTitle="Đơn vị chủ trì" prompt="Chọn trong danh sách đơn vị." sqref="B2:B201"><formula1>\'Danh muc don vi\'!$A$2:$A$' +
+      (unitCount + 1) +
+      "</formula1></dataValidation></dataValidations>";
+    const at = ["<ignoredErrors", "<pageMargins", "</worksheet>"]
+      .map((tag) => xml.indexOf(tag))
+      .find((i) => i >= 0);
+    if (at === undefined || xml.includes("<dataValidations")) return bytes;
+    entry.content = new TextEncoder().encode(
+      xml.slice(0, at) + validation + xml.slice(at),
+    );
+    entry.size = entry.content.length;
+    return new Uint8Array(X.CFB.write(zip, { fileType: "zip", type: "array" }));
+  } catch {
+    return bytes;
+  }
 }
 
 export async function parseTaskExcel(
@@ -132,23 +211,12 @@ export async function parseTaskExcel(
   const headers = rows[hi].map(norm);
   const col = (row: any[], name: string) =>
     row[headers.indexOf(norm(name))] ?? "";
+  const present = (name: string) => headers.includes(norm(name));
   const text = (v: any) => String(v ?? "").trim();
   const cfg = { ...defaults, ...data.settings };
   const seen = new Set<string>();
   const result: any[] = [];
-  const date = (v: any) => {
-    if (typeof v === "number") {
-      const d = X.SSF.parse_date_code(v, {
-        date1904: !!book.Workbook?.WBProps?.date1904,
-      });
-      return d
-        ? `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`
-        : "";
-    }
-    const s = text(v);
-    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    return m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : s;
-  };
+  const date = (v: any) => excelDate(v, !!book.Workbook?.WBProps?.date1904, X);
   const time = (v: any) => {
     if (typeof v === "number") {
       const n = Math.round((v % 1) * 1440);
@@ -156,6 +224,46 @@ export async function parseTaskExcel(
     }
     return text(v);
   };
+  const activeUnits = data.units.filter((u: any) => u.active);
+  const findUnit = (v: any): string => {
+    const exact = norm(v);
+    const byExact = activeUnits.filter(
+      (u: any) => norm(u.id) === exact || norm(u.name) === exact,
+    );
+    if (byExact.length === 1) return byExact[0].id;
+    if (byExact.length > 1) return "";
+    const key = unitKey(v);
+    const byKey = activeUnits.filter((u: any) => unitKey(u.name) === key);
+    if (byKey.length === 1) return byKey[0].id;
+    if (byKey.length > 1) return "";
+    // "UBND" ↔ "UBND xã", "Công an" ↔ "Công an xã"…
+    const bare = (s: string) => s.replace(/ xã$/, "");
+    const byBare = activeUnits.filter(
+      (u: any) => bare(unitKey(u.name)) === bare(key),
+    );
+    return byBare.length === 1 ? byBare[0].id : "";
+  };
+  // Partners are separated by ";" or line breaks. Commas are accepted too, but
+  // only where they do not belong to a unit name such as
+  // "Phòng Xây dựng, Nông nghiệp và Môi trường".
+  const splitUnits = (value: string) =>
+    value
+      .split(/[;\n\r]+/)
+      .map((v) => v.trim())
+      .filter(Boolean)
+      .flatMap((part) => {
+        if (findUnit(part) || !part.includes(",")) return [part];
+        const pieces = part.split(",").map((v) => v.trim());
+        const out: string[] = [];
+        let i = 0;
+        while (i < pieces.length) {
+          let j = pieces.length;
+          while (j > i + 1 && !findUnit(pieces.slice(i, j).join(", "))) j--;
+          out.push(pieces.slice(i, j).join(", "));
+          i = j;
+        }
+        return out.filter(Boolean);
+      });
   for (let i = hi + 1; i < rows.length; i++) {
     const row = rows[i];
     const hasUserInput = headers.some(
@@ -167,6 +275,10 @@ export async function parseTaskExcel(
     if (!hasUserInput) continue;
     const errors: string[] = [];
     const get = (n: string) => col(row, n);
+    // Columns missing from the file (the quick template has only a few) keep
+    // the existing task's value instead of wiping it.
+    const keep = (name: string, field: string) =>
+      old && !present(name) ? old[field] || "" : text(get(name));
     const title = text(get("Nội dung nhiệm vụ"));
     const rid = text(get("ID hệ thống"));
     const period = text(get("Tháng theo dõi")) || month;
@@ -211,25 +323,21 @@ export async function parseTaskExcel(
     if (old && ["done", "cancelled"].includes(old.status))
       errors.push("Nhiệm vụ đã kết thúc");
     const resolveUnit = (v: any) => {
-      const name = norm(v);
-      const matches = data.units.filter(
-        (u: any) => u.active && (norm(u.id) === name || norm(u.name) === name),
-      );
-      if (matches.length !== 1) {
+      const id = findUnit(v);
+      if (!id) {
         errors.push("Đơn vị không hợp lệ hoặc trùng tên: " + text(v));
         return "";
       }
-      return matches[0].id;
+      return id;
     };
     const unitValue =
       text(get("Đơn vị chủ trì")) || options.defaultUnitId || "";
     const unit = unitValue ? resolveUnit(unitValue) : "";
     if (!unit) errors.push("Thiếu đơn vị chủ trì");
-    const partners = text(get("Đơn vị phối hợp"))
-      .split(";")
-      .map((v) => v.trim())
-      .filter(Boolean)
-      .map(resolveUnit);
+    const partners =
+      old && !present("Đơn vị phối hợp")
+        ? [...(old.partners || [])]
+        : splitUnits(text(get("Đơn vị phối hợp"))).map(resolveUnit);
     if (partners.includes(unit))
       errors.push("Chủ trì không đồng thời là đơn vị phối hợp");
     const partnerUpdateValue = norm(get("Yêu cầu thông tin phối hợp"));
@@ -246,8 +354,9 @@ export async function parseTaskExcel(
       : (old?.partnerUpdateRequired ?? partners.length > 0);
     if (partnerUpdateRequired && !partners.length)
       errors.push("Chỉ yêu cầu thông tin phối hợp khi đã chọn đơn vị phối hợp");
-    const owner = text(get("Người phụ trách"));
-    const assignedDate = date(get("Ngày giao")) || `${period}-01`,
+    const owner = keep("Người phụ trách", "owner");
+    const assignedDate =
+        date(get("Ngày giao")) || old?.assignedDate || `${period}-01`,
       due = date(get("Thời hạn hoàn thành"));
     for (const [label, v] of [
       ["Ngày giao", assignedDate],
@@ -262,7 +371,10 @@ export async function parseTaskExcel(
         errors.push(label + " không hợp lệ");
     }
     if (due < assignedDate) errors.push("Thời hạn phải từ ngày giao trở đi");
-    const assignedTime = time(get("Giờ giao"));
+    const assignedTime =
+      old && !present("Giờ giao")
+        ? old.assignedTime || ""
+        : time(get("Giờ giao"));
     if (assignedTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(assignedTime))
       errors.push("Giờ giao không hợp lệ");
     const freqMap: any = {
@@ -310,7 +422,10 @@ export async function parseTaskExcel(
       errors.push("Cập nhật bằng ID cần giữ cột Phiên bản từ bảng xuất");
     if (old && version !== "" && Number(version) !== old.version)
       errors.push("Phiên bản đã thay đổi; tải bảng mới nhất");
-    const target = Number(get("Chỉ tiêu") || 0);
+    const target =
+      old && !present("Chỉ tiêu")
+        ? Number(old.target) || 0
+        : Number(get("Chỉ tiêu") || 0);
     if (!Number.isFinite(target) || target < 0)
       errors.push("Chỉ tiêu phải là số không âm");
     const payload = {
@@ -319,12 +434,17 @@ export async function parseTaskExcel(
       importCode: old?.importCode || code,
       title,
       month: period,
-      documentId: docNum ? docs[0]?.id : "",
+      documentId:
+        old && !present("Số, ký hiệu văn bản")
+          ? old.documentId || ""
+          : docNum
+            ? docs[0]?.id
+            : "",
       unit,
       partners: Array.from(new Set(partners)),
       partnerUpdateRequired,
       owner,
-      leader: text(get("Lãnh đạo theo dõi")),
+      leader: keep("Lãnh đạo theo dõi", "leader"),
       assignedDate,
       assignedTime,
       due,
@@ -332,17 +452,49 @@ export async function parseTaskExcel(
       reportHour: reportHour || cfg.hour,
       reportDay,
       target,
-      measure: text(get("Đơn vị tính")),
-      output: text(get("Sản phẩm đầu ra")),
-      note: text(get("Ghi chú")),
+      measure: keep("Đơn vị tính", "measure"),
+      output: keep("Sản phẩm đầu ra", "output"),
+      note: keep("Ghi chú", "note"),
       reason,
     };
+    // Re-importing the same file (e.g. after fixing error rows) must not
+    // re-save, re-notify or bump versions of rows already in the system.
+    const unchanged =
+      !!old &&
+      !errors.length &&
+      [
+        "title",
+        "documentId",
+        "unit",
+        "owner",
+        "leader",
+        "assignedDate",
+        "assignedTime",
+        "due",
+        "measure",
+        "output",
+        "note",
+        "reportFrequency",
+      ].every(
+        (k) => String(old[k] ?? "") === String((payload as any)[k] ?? ""),
+      ) &&
+      Number(old.target || 0) === Number(payload.target || 0) &&
+      [...(old.partners || [])].sort().join("|") ===
+        [...payload.partners].sort().join("|");
+    const warnings: string[] = [];
+    const typedAssigned = date(get("Ngày giao"));
+    if (typedAssigned && typedAssigned.slice(0, 7) !== period)
+      warnings.push(
+        `Ngày giao thuộc tháng ${Number(typedAssigned.slice(5, 7))}/${typedAssigned.slice(0, 4)}, nhiệm vụ sẽ vào kỳ ${Number(period.slice(5))}/${period.slice(0, 4)}`,
+      );
     result.push({
       row: i + 1,
+      warnings,
       mode: old ? "update" : "create",
       payload,
       errors,
-      saved: false,
+      saved: unchanged,
+      ...(unchanged ? { message: "Đã có trong hệ thống, không thay đổi" } : {}),
     });
   }
   if (!result.length) throw new Error("File chưa có dòng nhiệm vụ.");

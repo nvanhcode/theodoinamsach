@@ -17,7 +17,6 @@ import {
   office,
   approver,
   canReport,
-  deadlineState,
   reportState,
   weekWindow,
   localDate,
@@ -25,7 +24,7 @@ import {
   fmt,
 } from "@/components/common-ui";
 import { reminderPriority } from "@/lib/reminder-priority";
-import { matchesProgressStatus } from "@/lib/progress-summary";
+import { bucketCounts, matchesTaskFilter } from "@/lib/progress-summary";
 import { saveImportRows } from "@/lib/save-import";
 import { uploadError } from "@/lib/upload-error";
 import { useRouter } from "next/navigation";
@@ -161,7 +160,9 @@ export function AppProvider({
     "note",
   ]);
   const [range, setRange] = useState("month");
-  const [fromDate, setFromDate] = useState(() => `${localDate().slice(0, 7)}-01`);
+  const [fromDate, setFromDate] = useState(
+    () => `${localDate().slice(0, 7)}-01`,
+  );
   const [toDate, setToDate] = useState(() => localDate());
 
   const [templateDownload, setTemplateDownload] = useState<any>(null);
@@ -526,21 +527,13 @@ export function AppProvider({
             .toLowerCase()
             .includes(search.toLowerCase())) &&
         (!status ||
-          (["givenWork", "unfinished"].includes(status) &&
-            matchesProgressStatus(t, status)) ||
-          (status === "overdue" && deadlineState(t) === "overdue") ||
-          (status === "lateReport" &&
-            ["missing", "late"].includes(
-              reportState(t, data.reports, new Date(), cfg),
-            )) ||
-          (status === "carry" && t.type === "carry") ||
-          (status === "activeWork" &&
-            ["assigned", "working", "review", "returned"].includes(t.status) &&
-            deadlineState(t) !== "overdue") ||
-          (status === "notStarted" &&
-            ["draft", "pending"].includes(t.status) &&
-            deadlineState(t) !== "overdue") ||
-          t.status === status)
+          (status === "lateReport"
+            ? ["missing", "late"].includes(
+                reportState(t, data.reports, new Date(), cfg),
+              )
+            : status === "carry"
+              ? t.type === "carry"
+              : matchesTaskFilter(t, status, new Date(), cfg.warningDays)))
       );
     })
     .sort((a, b) =>
@@ -552,24 +545,18 @@ export function AppProvider({
     );
 
   const base = progressScope;
-  const done = base.filter((t) => t.status === "done").length;
-  const working = base.filter(
-    (t) =>
-      ["working", "assigned", "review", "returned"].includes(t.status) &&
-      deadlineState(t) !== "overdue",
-  ).length;
-  const overdue = base.filter((t) => deadlineState(t) === "overdue").length;
+  const buckets = bucketCounts(base, new Date(), cfg.warningDays);
+  const done = buckets.done;
+  const working = buckets.activeWork;
+  const overdue = buckets.overdue;
   const late = base.filter((t) =>
     ["missing", "late"].includes(reportState(t, data.reports, new Date(), cfg)),
   ).length;
   const reminderItems = reminderPriority(base, data.reports, new Date(), cfg);
-  const notStarted = base.filter(
-    (t) =>
-      ["draft", "pending"].includes(t.status) && deadlineState(t) !== "overdue",
-  ).length;
-  const other = base.filter((t) =>
-    ["paused", "cancelled"].includes(t.status),
-  ).length;
+  const notStarted = buckets.notAssigned;
+  const paused = buckets.paused;
+  const cancelled = buckets.cancelled;
+  const other = paused + cancelled;
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {
       draft: 0,
@@ -718,16 +705,20 @@ export function AppProvider({
         },
       );
       const savedCount = next.filter((r) => r.saved).length;
-      const failed = next.filter((r) => !r.saved);
+      const failed = next.filter((r) => !r.saved && !r.errors.length);
+      const skipped = next.filter((r) => !r.saved && r.errors.length);
       setImportPhase(
         "Đã lưu hệ thống " +
           savedCount +
           "/" +
           next.length +
           " nhiệm vụ" +
-          (failed.length ? " · " + failed.length + " dòng chưa lưu." : "."),
+          (failed.length ? " · " + failed.length + " dòng chưa lưu" : "") +
+          (skipped.length
+            ? " · " + skipped.length + " dòng lỗi bỏ qua, cần sửa trong file."
+            : "."),
       );
-      if (!failed.length) {
+      if (!failed.length && !skipped.length) {
         // Once every row is saved, close the import dialog immediately. The
         // list refresh is secondary and should not leave a completed form open.
         setModal("");
@@ -870,6 +861,8 @@ export function AppProvider({
     reminderItems,
     notStarted,
     other,
+    paused,
+    cancelled,
     statusCounts,
     total,
     pageSize,
